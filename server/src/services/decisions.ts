@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { and, asc, count, desc, eq, gt, gte, inArray, lte, sql } from "drizzle-orm";
+import { and, asc, count, desc, eq, gt, gte, inArray, sql } from "drizzle-orm";
 import type { Db } from "@paperclipai/db";
 import { databaseWorkScopeKey, companyMemberships, decisionBundles, decisionEffectExecutions, decisionRetention, decisions, decisionTargetIssues, heartbeatRuns, issueRelations, issues } from "@paperclipai/db";
 import { ATTENTION_SOURCE_KINDS, decisionEffectTargetIssueIds } from "@paperclipai/shared";
@@ -15,6 +15,7 @@ import {
 import { decisionRetentionService, hashAttentionArchiveManifest } from "./decision-retention.js";
 
 import { decisionContinuationService, type DecisionContinuationWake } from "./decision-continuations.js";
+import { decisionEffectRecoveryService, decisionSweepBatchSize } from "./decision-effect-recovery.js";
 import { decisionExpiryService } from "./decision-expiry.js";
 import { notifyDecisionCreated, writeDecisionChange } from "./decision-work-notifications.js";
 
@@ -24,7 +25,8 @@ type Snapshot = { status: string; assigneeAgentId: string | null; assigneeUserId
 export type DecisionServiceOptions = { wakeOriginAgent: DecisionContinuationWake };
 const DAY = 86_400_000;
 type DecisionOutcome = typeof decisions.$inferSelect & { executions: Array<typeof decisionEffectExecutions.$inferSelect> };
-const effectFlights = new WeakMap<object, Map<string, Promise<DecisionOutcome>>>();
+type EffectAttempt = { outcome: DecisionOutcome; resumed: boolean };
+const effectFlights = new WeakMap<object, Map<string, Promise<EffectAttempt | null>>>();
 
 function targetIds(options: DecisionOption[]) {
   const result = new Set<string>();
@@ -126,6 +128,7 @@ function boardCanActDirectly(actor: AuthorizationActor, companyId: string) {
 export function decisionService(db: Db, options: DecisionServiceOptions) {
   const continuations = decisionContinuationService(db, options.wakeOriginAgent);
   const expiry = decisionExpiryService(db, continuations.deliver);
+  const effectRecovery = decisionEffectRecoveryService(db, recoverDecisionEffects);
   const scope = databaseWorkScopeKey(db);
   let flights = effectFlights.get(scope);
   if (!flights) effectFlights.set(scope, flights = new Map());
@@ -557,21 +560,53 @@ export function decisionService(db: Db, options: DecisionServiceOptions) {
     }
   }
 
-  function runEffects(decision: typeof decisions.$inferSelect, userActor: AuthorizationActor): Promise<DecisionOutcome> {
-    const existing = executing.get(decision.id);
+  function runEffects(id: string, userActor?: AuthorizationActor): Promise<EffectAttempt | null> {
+    const existing = executing.get(id);
     if (existing) return existing;
     const attempt = (async () => {
-      const current = await get(decision.id);
-      if (!current) throw notFound("Decision not found");
-      return current.executionStatus === "running" ? executeDecisionEffects(current, userActor) : outcome(current.id);
-    })().finally(() => { executing.delete(decision.id); });
-    executing.set(decision.id, attempt);
+      const current = await get(id);
+      if (!current) return null;
+      if (current.status !== "decided" || current.executionStatus !== "running") {
+        return { outcome: await outcome(id), resumed: false };
+      }
+      // Recovery derives authority from the current claim inside the shared flight.
+      const actor = userActor ?? (current.decidedByUserId
+        ? await recoveryActor(current.companyId, current.decidedByUserId)
+        : { type: "none" as const, source: "none" as const });
+      return { outcome: await executeDecisionEffects(current, actor), resumed: true };
+    })().finally(() => { executing.delete(id); });
+    executing.set(id, attempt);
     return attempt;
+  }
+
+  async function settleInvalidEffectOutcome(id: string) {
+    const publications: ActivityPublication[] = [];
+    await writeDecisionChange(db, async tx => {
+      const [current] = await tx.select().from(decisions).where(eq(decisions.id, id)).for("update");
+      if (!current || current.status !== "decided" || current.executionStatus !== "running") return;
+      const reason = !current.decidedByUserId ? "missing_decider"
+        : !current.options.some(option => option.id === current.chosenOptionId) ? "missing_option" : null;
+      if (!reason) return;
+      const [executed] = await tx.select({ id: decisionEffectExecutions.id }).from(decisionEffectExecutions)
+        .where(and(eq(decisionEffectExecutions.decisionId, id), eq(decisionEffectExecutions.status, "executed"))).limit(1);
+      const executionStatus = executed ? "partial" : "failed";
+      await tx.update(decisions).set({ executionStatus, updatedAt: new Date(), metadata: { ...current.metadata,
+        effectRecoveryError: reason,
+        ...(current.continuationPolicy === "wake_origin_agent" ? { continuationPending: true } : {}),
+      } }).where(eq(decisions.id, id));
+      await logActivity(tx, { companyId: current.companyId, actorType: "system", actorId: "decision-executor",
+        agentId: current.originAgentId, runId: current.originRunId, responsibleUserIdOverride: current.decidedByUserId,
+        action: "decision.recovery_failed", entityType: "decision", entityId: id,
+        details: { reason, executionStatus, chosenOptionId: current.chosenOptionId, decidedByUserId: current.decidedByUserId },
+      }, publications);
+    });
+    for (const publication of publications) publishActivity(publication);
+    return outcome(id);
   }
 
   async function executeDecisionEffects(decision: typeof decisions.$inferSelect, userActor: AuthorizationActor) {
     const option = decision.options.find((item) => item.id === decision.chosenOptionId);
-    if (!option || !decision.decidedByUserId) throw unprocessable("Stored decision outcome is invalid");
+    if (!option || !decision.decidedByUserId) return settleInvalidEffectOutcome(decision.id);
     const run = await db.select({ responsibleUserId: heartbeatRuns.responsibleUserId }).from(heartbeatRuns).where(eq(heartbeatRuns.id, decision.originRunId)).then((rows) => rows[0] ?? null);
     const metadata = decision.metadata as Record<string, unknown>;
     if (metadata.kind === "attention_archive_proposal") {
@@ -635,7 +670,9 @@ export function decisionService(db: Db, options: DecisionServiceOptions) {
   }
 
   async function resumeDecision(decision: typeof decisions.$inferSelect, userActor: AuthorizationActor) {
-    const result = decision.executionStatus === "running" ? await runEffects(decision, userActor) : await outcome(decision.id);
+    const attempt = decision.executionStatus === "running" ? await runEffects(decision.id, userActor) : undefined;
+    if (attempt === null) throw notFound("Decision not found");
+    const result = attempt?.outcome ?? await outcome(decision.id);
     await continuations.deliver(result.id);
     return outcome(decision.id);
   }
@@ -716,27 +753,16 @@ export function decisionService(db: Db, options: DecisionServiceOptions) {
       return { ...bundle, decisions: created }; });
   }
 
-  async function sweepExpired(now = new Date(), options: { includeContinuations?: boolean; includeExpiry?: boolean } = {}) {
-    const configuredBatchSize = Number(process.env.PAPERCLIP_DECISIONS_SWEEP_BATCH_SIZE ?? 100);
-    const batchSize = Number.isFinite(configuredBatchSize)
-      ? Math.max(1, Math.trunc(configuredBatchSize))
-      : 100;
-    const configuredRecoveryGraceMs = Number(process.env.PAPERCLIP_DECISIONS_RECOVERY_GRACE_MS ?? 60_000);
-    const recoveryGraceMs = Number.isFinite(configuredRecoveryGraceMs) && configuredRecoveryGraceMs >= 0
-      ? configuredRecoveryGraceMs
-      : 60_000;
-    const runningRows = await db.select().from(decisions)
-      .where(and(eq(decisions.status, "decided"), eq(decisions.executionStatus, "running"),
-        lte(decisions.updatedAt, new Date(now.getTime() - recoveryGraceMs))))
-      .orderBy(asc(decisions.updatedAt)).limit(batchSize);
-    let resumed = 0;
-    for (const decision of runningRows) {
-      if (!decision.decidedByUserId) continue;
-      const recovered = await runEffects(decision, await recoveryActor(decision.companyId, decision.decidedByUserId));
-      if (recovered.executionStatus === "running") continue;
-      resumed += 1;
-      await continuations.deliver(recovered.id);
-    }
+  async function recoverDecisionEffects(id: string) {
+    const attempt = await runEffects(id);
+    if (!attempt?.resumed || attempt.outcome.executionStatus === "running") return false;
+    await continuations.deliver(attempt.outcome.id);
+    return true;
+  }
+
+  async function sweepExpired(now = new Date(), options: { includeContinuations?: boolean; includeExpiry?: boolean; includeEffects?: boolean } = {}) {
+    const batchSize = decisionSweepBatchSize();
+    const { resumed } = options.includeEffects === false ? { resumed: 0 } : await effectRecovery.sweep(now, batchSize);
     if (options.includeContinuations !== false) await continuations.sweep(batchSize);
     const ttlRows = options.includeExpiry === false ? [] : await expiry.due(now, batchSize);
     const remaining = batchSize - ttlRows.length;
@@ -768,5 +794,6 @@ export function decisionService(db: Db, options: DecisionServiceOptions) {
   }
 
   return { create, createBundle, get, list, stats, outcome, decide, cancel, dismiss, sweepExpired, sweepContinuations: continuations.sweep,
-    sweepTtlExpiry: expiry.sweep, nextExpiryAt: expiry.next };
+    sweepTtlExpiry: expiry.sweep, nextExpiryAt: expiry.next,
+    recoverEffects: effectRecovery.sweep, nextEffectRecoveryAt: effectRecovery.next };
 }

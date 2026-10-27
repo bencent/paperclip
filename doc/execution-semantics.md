@@ -2449,7 +2449,7 @@ Checkpoint encryption resolves the local master key once per checkpoint load or
 changed-record write, then encrypts or decrypts the batch in memory. It does not
 retain a process-wide key cache. Each later operation reads the configured key
 again, and a recovery read never creates a missing key. Ciphertext format and
-company/run/part binding stay the same. Migration 0390 follows current master and
+company/run/part binding stay the same. Migration 0391 follows current master and
 remains idempotent for test databases that already installed an earlier preview.
 
 Expired remote recovery considers the complete active-run inventory supplied by
