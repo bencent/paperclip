@@ -1379,3 +1379,20 @@ cases cover missing, succeeded, failed, cancelled and timed-out runs in one read
 with no clock advance. This remains an unexercised boundary; it does not authorize
 a replacement task or claim active continuity after completion. These checks add
 no real harness turns, deployed artifacts, or hosted upgrade acceptance.
+
+
+### Partial outage receipts survive cleanup (October 27 review)
+
+The shared case-evidence collector now copies sanitized supervisor outage
+receipts from the temporary control directory into each case's snapshots before
+normal cleanup. This is independent of successful restart acknowledgements.
+Startup, HTTP readiness, and authenticated recovery failures therefore preserve
+the last recorded phase. Restart request files and temporary receipt writes are
+not copied. Ordinary cells with no outage retain their existing evidence path.
+
+Three filesystem regressions fail before the collector change. They use the
+normal replacement and evidence-packaging interfaces, delete the temporary root,
+and then read the published receipt. After the change, all 95 focused
+qualification cases and E2E typecheck pass. The tests also confirm redaction and
+existing log collection. This is evidence-retention proof, not hosted upgrade
+continuity or final performance qualification.
