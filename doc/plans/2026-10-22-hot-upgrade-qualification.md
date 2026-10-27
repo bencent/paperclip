@@ -1439,3 +1439,22 @@ normalized session fails before any restored directory is created. Require
 current Linux CI execution before merge. No new streaming writes or idle SQL
 are added; reconstruction is limited to warm admission with an external marker
 or an older local projection.
+
+
+### Delivery read deadlines below the queue bound
+
+Four cases reproduce a live-delivery freeze when a permission or decoration
+read never settles, for both old and negotiated clients, with only two retained
+items. The five-second pending-read deadline now closes the connection before
+overflow is necessary. Disposal clears queued items, prevents late results from
+being sent, and leaves unrelated connections responsive. Interest revisions
+cannot reset the pending read's original deadline. The underlying read is not
+cancelled by socket closure; at most the already-started read remains until its
+driver settles. That closed connection can launch no subsequent delivery work.
+
+After correction, all 28 delivery, unchanged workload-cost and WebSocket cases
+pass with server typecheck. Six new cases include the four stalled-read variants
+and settling/disposal before expiry; they confirm no timer remains when idle.
+The workload comparison preserves the existing viewer-interest authorization
+call counts. These unit counts do not measure final hosted SQL or CPU savings,
+and do not complete the active-agent/viewer performance matrix.

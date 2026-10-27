@@ -34,11 +34,24 @@ export function createLiveEventDelivery(input: {
   let needsResync = false;
   let notifiedRevision = -1;
   let congestionTimer: ReturnType<typeof setTimeout> | undefined;
+  let pendingReadTimer: ReturnType<typeof setTimeout> | undefined;
   const activityAt = new Map<string, number>();
   const isOpen = () => !disposed && socket.readyState === 1;
   const room = (bytes: number, items = 1) => retainedItems + items <= LIVE_DELIVERY_MAX_ITEMS
     && retainedBytes + bytes + (socket.bufferedAmount ?? 0) <= LIVE_DELIVERY_MAX_BYTES;
   const wants = (event: LiveEvent) => !negotiated || !transcript(event) || interests.has(runId(event) ?? "");
+  function dispose() {
+    disposed = true; epoch += 1;
+    for (const item of queued) { retainedBytes -= item.bytes; retainedItems -= 1; }
+    queued = []; activityAt.clear();
+    if (congestionTimer) clearTimeout(congestionTimer);
+    if (pendingReadTimer) clearTimeout(pendingReadTimer);
+    congestionTimer = pendingReadTimer = undefined;
+  }
+  function closeBacklog() {
+    dispose();
+    socket.close(1013, "persistent event backlog");
+  }
   function control(value: object): boolean {
     const encoded = JSON.stringify(value);
     if (!isOpen() || !room(Buffer.byteLength(encoded))) return false;
@@ -58,7 +71,7 @@ export function createLiveEventDelivery(input: {
     if (!congestionTimer) {
       congestionTimer = setTimeout(() => {
         congestionTimer = undefined;
-        if (needsResync || draining || (socket.bufferedAmount ?? 0) >= LIVE_DELIVERY_MAX_BYTES / 2) socket.close(1013, "persistent event backlog");
+        if (needsResync || draining || (socket.bufferedAmount ?? 0) >= LIVE_DELIVERY_MAX_BYTES / 2) closeBacklog();
       }, CONGESTION_DEADLINE_MS);
       congestionTimer.unref?.();
     }
@@ -84,6 +97,12 @@ export function createLiveEventDelivery(input: {
         const item = queued.shift()!;
         try {
           if (item.epoch !== epoch || !wants(item.event)) continue;
+          // A small queue can still stall on its first permission/redaction
+          // read. Close so the browser reconnects and catches up, even if ping
+          // frames remain healthy. The underlying read may finish later; this
+          // disposed connection accepts no more work and cannot send its result.
+          pendingReadTimer = setTimeout(closeBacklog, CONGESTION_DEADLINE_MS);
+          pendingReadTimer.unref?.();
           const visible = await input.authorize(item.event);
           if (!visible || item.epoch !== epoch || !wants(item.event) || !isOpen()) continue;
           // Transcript/activity events cannot produce toasts. Avoid a separate
@@ -107,7 +126,11 @@ export function createLiveEventDelivery(input: {
           // Older clients still poll their canonical history. Keep their
           // existing skip-and-continue behavior on a failed permission read.
           if (negotiated) overflow();
-        } finally { retainedBytes -= item.bytes; retainedItems -= 1; }
+        } finally {
+          if (pendingReadTimer) clearTimeout(pendingReadTimer);
+          pendingReadTimer = undefined;
+          retainedBytes -= item.bytes; retainedItems -= 1;
+        }
       }
     } finally { draining = false; resync(); }
   }
@@ -157,12 +180,7 @@ export function createLiveEventDelivery(input: {
       queued.push({ event, bytes, epoch }); retainedBytes += bytes; retainedItems += 1;
       void drain();
     },
-    dispose() {
-      disposed = true; epoch += 1;
-      for (const item of queued) { retainedBytes -= item.bytes; retainedItems -= 1; }
-      queued = []; activityAt.clear();
-      if (congestionTimer) clearTimeout(congestionTimer);
-    },
+    dispose,
     metrics: () => ({ retainedBytes, retainedItems, negotiated, revision, needsResync }),
   };
 }

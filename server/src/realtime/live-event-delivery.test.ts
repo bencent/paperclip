@@ -143,3 +143,51 @@ it("rejects unbounded interest sets and stale revision commands", () => {
   expect(other.socket.close).toHaveBeenCalled();
   f.delivery.dispose(); other.delivery.dispose();
 });
+
+it.each([false, true].flatMap(negotiated => ["authorize", "decorate"].map(stage => ({ negotiated, stage }))))(
+  "closes a stalled $stage read below the queue bound (negotiated=$negotiated)", async ({ negotiated, stage }) => {
+    vi.useFakeTimers();
+    let release!: (value: LiveEvent) => void;
+    const pending = new Promise<LiveEvent>(resolve => { release = resolve; });
+    const f = fixture(stage === "authorize" ? vi.fn(() => pending) : undefined);
+    const other = fixture();
+    try {
+      if (stage === "decorate") f.decorate.mockImplementationOnce(async () => ({ ...await pending, toastEligible: true }));
+      if (negotiated) f.subscribe(["run-1"]);
+      const source = stage === "authorize" ? event() : { ...event(), type: "heartbeat.run.status" as const };
+      f.delivery.enqueue(source);
+      f.delivery.enqueue(event(2));
+      other.delivery.enqueue(event());
+      await settle();
+      expect(other.frames).toHaveLength(1);
+      expect(f.delivery.metrics()).toMatchObject({ retainedItems: 2, needsResync: false });
+      await vi.advanceTimersByTimeAsync(4_000);
+      if (negotiated) f.subscribe(["run-1"], 2);
+      await vi.advanceTimersByTimeAsync(999);
+      expect(f.socket.close).not.toHaveBeenCalled();
+      await vi.advanceTimersByTimeAsync(1);
+      expect(f.socket.close).toHaveBeenCalledWith(1013, "persistent event backlog");
+      expect(f.delivery.metrics().retainedItems).toBe(1);
+      expect(vi.getTimerCount()).toBe(0);
+      release(source); await settle();
+      expect(f.delivery.metrics()).toMatchObject({ retainedItems: 0, retainedBytes: 0 });
+      expect(f.frames.filter(frame => frame.type.startsWith("heartbeat."))).toEqual([]);
+      expect(f.authorize).toHaveBeenCalledOnce();
+    } finally { f.delivery.dispose(); other.delivery.dispose(); }
+  });
+
+it.each(["resolve", "dispose"])("clears a pending-read deadline on %s without idle work", async ending => {
+  vi.useFakeTimers();
+  let release!: (value: LiveEvent) => void;
+  const f = fixture(vi.fn(() => new Promise<LiveEvent>(resolve => { release = resolve; })));
+  try {
+    f.subscribe(["run-1"]); f.delivery.enqueue(event());
+    await vi.advanceTimersByTimeAsync(4_999);
+    if (ending === "dispose") f.delivery.dispose();
+    release(event()); await settle();
+    expect(vi.getTimerCount()).toBe(0);
+    await vi.advanceTimersByTimeAsync(5_001);
+    expect(f.socket.close).not.toHaveBeenCalled();
+    expect(f.frames.filter(frame => frame.type === "heartbeat.run.log")).toHaveLength(ending === "resolve" ? 1 : 0);
+  } finally { f.delivery.dispose(); }
+});
