@@ -1,16 +1,22 @@
 import { and, eq, exists, gt, isNull, lte, inArray, or, sql } from "drizzle-orm";
 import { checkpointDb, heartbeatRuns, issues, nativeRunFinalizations, nativeRunnerCheckpoints, type Db } from "@paperclipai/db";
 import { decodeDurablePrpCheckpoint, type DurablePrpCheckpoint, type DurablePrpControlPlane } from "../../vendor/paperclip-runner/index.js";
-import { localEncryptedProvider } from "../../secrets/local-encrypted-provider.js";
+import { createLocalEncryptedCipher } from "../../secrets/local-encrypted-provider.js";
 
 type Binding = { companyId: string; issueId: string; runId: string };
 type Owner = Binding & { bootId: string; leaseOwner: string; generation: number; authorityRunId: string };
-async function encryptPart(binding: Binding, part: string, contents: string) {
-  return (await localEncryptedProvider.createVersion({ value: JSON.stringify({ ...binding, part, contents }) })).material;
+function encryptParts(binding: Binding, records: ReadonlyMap<string, string>) {
+  if (!records.size) return [];
+  const cipher = createLocalEncryptedCipher("write");
+  return [...records].map(([part, contents]) => ({
+    companyId: binding.companyId, issueId: binding.issueId, runId: binding.runId, part,
+    material: cipher.encrypt(JSON.stringify({ ...binding, part, contents })),
+  }));
 }
 
-async function decryptPart(binding: Binding, part: string, material: Record<string, unknown>): Promise<string> {
-  const envelope = JSON.parse(await localEncryptedProvider.resolveVersion({ material, externalRef: null }));
+function decryptPart(cipher: ReturnType<typeof createLocalEncryptedCipher>, binding: Binding,
+  part: string, material: Record<string, unknown>): string {
+  const envelope = JSON.parse(cipher.decrypt(material));
   if (envelope.companyId !== binding.companyId || envelope.issueId !== binding.issueId
     || envelope.runId !== binding.runId || envelope.part !== part || typeof envelope.contents !== "string") {
     throw new Error("native_runner_checkpoint_binding_mismatch");
@@ -23,9 +29,7 @@ export function nativeRunnerCheckpointWriter(db: Db, owner: Owner) {
   let previousWork = new Set<string>();
   return async (checkpoint: DurablePrpCheckpoint): Promise<void> => {
     if (checkpoint.runId !== owner.runId) throw new Error("native_runner_checkpoint_binding_mismatch");
-    const changed = await Promise.all([...checkpoint.changedRecords]
-      .map(async ([part, value]) => ({ companyId: owner.companyId, issueId: owner.issueId,
-        runId: owner.runId, part, material: await encryptPart(owner, part, value) })));
+    const changed = encryptParts(owner, checkpoint.changedRecords);
     await persistenceDb.transaction(async tx => {
       // A locking CTE acquires ownership before the outer projection samples
       // wall time. Sampling in the locking SELECT can precede its lock wait.
@@ -141,8 +145,9 @@ export async function loadNativeRunnerCheckpoint(db: Db, binding: Binding): Prom
     eq(nativeRunnerCheckpoints.companyId, binding.companyId), eq(nativeRunnerCheckpoints.issueId, binding.issueId),
     eq(nativeRunnerCheckpoints.runId, binding.runId)));
   if (!rows.length) return null;
-  const parts = new Map(await Promise.all(rows.map(async row =>
-    [row.part, await decryptPart(binding, row.part, row.material)] as const)));
+  const cipher = createLocalEncryptedCipher("read");
+  const parts = new Map(rows.map(row =>
+    [row.part, decryptPart(cipher, binding, row.part, row.material)] as const));
   const checkpoint = decodeDurablePrpCheckpoint(parts);
   if (checkpoint.runId !== binding.runId) throw new Error("native_runner_checkpoint_binding_mismatch");
   return checkpoint;
