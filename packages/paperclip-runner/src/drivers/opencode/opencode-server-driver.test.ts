@@ -37,8 +37,6 @@ import {
   openCodeServerDriverInternals,
 } from "./opencode-server-driver.js";
 
-// Substitute only the upstream transport in this credential-custody regression;
-// the real driver, child fixture, proxy authentication and lifecycle still run.
 const upstreamTransport = vi.hoisted(() => ({ endpoint: "", urls: [] as string[] }));
 vi.mock("node:https", async importOriginal => {
   const actual = await importOriginal<typeof import("node:https")>();
@@ -757,7 +755,6 @@ describe("OpenCodeServerDriver", () => {
       const environmentText = await readFile(join(root, "custody", "data", "fake-environment.json"), "utf8");
       expect(JSON.parse(environmentText).keys).not.toContain("OPENROUTER_API_KEY");
       expect(environmentText).not.toContain(key);
-      // The fake child persists exactly the config/environment values it could use.
       const persisted = await readFile(join(root, "custody", "data", "fake-provider-custody.json"), "utf8");
       expect(persisted).not.toContain(key);
       expect(JSON.parse(persisted)).toMatchObject({ providerOptions: { baseURL, apiKey } });

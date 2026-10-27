@@ -2167,7 +2167,7 @@ class OpenCodeHarnessSession implements HarnessSession {
   }
 }
 
-/** Keep the upstream key in the parent; the child gets a loopback-only, session-lived capability. */
+/** Retain the reusable gateway key in the runner; the harness gets a session-scoped capability. */
 async function startOpenCodeProviderProxy(baseUrl: string, key: string, model: string, environment: NodeJS.ProcessEnv) {
   const upstreamUrl = new URL(`${baseUrl.replace(/\/+$/, "")}/chat/completions`);
   const token = randomBytes(32).toString("base64url");
