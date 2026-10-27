@@ -169,6 +169,8 @@ export async function hasNativeRunnerCheckpoint(db: Pick<Db, "select">, binding:
 
 export async function listExpiredNativeRunnerAuthorities(db: Db, now: Date, runIds: string[]): Promise<string[]> {
   if (!runIds.length) return [];
+  // The caller supplies the finite expired active-run inventory. Return all of
+  // it: a blocked owner's unchanged row must not starve later recoverable runs.
   const rows = await db.select({ runId: nativeRunFinalizations.runId }).from(nativeRunFinalizations)
     .innerJoin(heartbeatRuns, eq(heartbeatRuns.id, nativeRunFinalizations.runId))
     .where(and(inArray(nativeRunFinalizations.runId, runIds),
@@ -178,7 +180,6 @@ export async function listExpiredNativeRunnerAuthorities(db: Db, now: Date, runI
       exists(db.select({ runId: nativeRunnerCheckpoints.runId }).from(nativeRunnerCheckpoints).where(and(
         eq(nativeRunnerCheckpoints.runId, nativeRunFinalizations.runId),
         eq(nativeRunnerCheckpoints.issueId, nativeRunFinalizations.issueId),
-        eq(nativeRunnerCheckpoints.companyId, nativeRunFinalizations.companyId))))))
-    .limit(100);
+        eq(nativeRunnerCheckpoints.companyId, nativeRunFinalizations.companyId))))));
   return rows.map(row => row.runId);
 }

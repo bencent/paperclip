@@ -67,7 +67,7 @@ import { createIsolatedTestHome } from "../../__tests__/helpers/isolated-test-ho
 import { finalizeNativeRun } from "./native-run-finalizer.js";
 import { waitForPendingRunFailureReports } from "../run-failure-report.js";
 import { closeIdleWarmNativeSessionsForRestart, detachNativeSessionsForRestart, executePaperclipNativeSession, NativeControllerDetachedForRestartError } from "./native-session-executor.js";
-import { loadNativeRunnerCheckpoint, nativeRunnerCheckpointRegistration, nativeRunnerCheckpointWriter, registerNativeRunnerCheckpoint, restoreNativeRunnerCheckpoint } from "./native-runner-checkpoint.js";
+import { listExpiredNativeRunnerAuthorities, loadNativeRunnerCheckpoint, nativeRunnerCheckpointRegistration, nativeRunnerCheckpointWriter, registerNativeRunnerCheckpoint, restoreNativeRunnerCheckpoint } from "./native-runner-checkpoint.js";
 import { REMOTE_RUNNER_RECONNECT_GRACE_MS } from "./native-runner-recovery-contract.js";
 import { PaperclipRunnerToolAuthority } from "./paperclip-runner-tool-authority.js";
 import { RUNNER_BRIDGE_READ_OPERATIONS, RUNNER_BRIDGE_SCHEMAS } from "./runner-bridge-tools.js";
@@ -2403,6 +2403,48 @@ describeEmbeddedPostgres("native runner restart recovery with real processes", (
       [expect.objectContaining({ runId: fixture.runId, runStatus: "failed", errorCode: "native_restart_recovery_blocked" })],
     ]);
   });
+
+  it("recovers a valid runner beyond a full batch of persistently blocked expired owners", async () => {
+    const fixtures: Array<Awaited<ReturnType<typeof seedRun>>> = [];
+    const db = createDb(temporary.connectionString);
+    for (let index = 0; index < 101; index++) {
+      const fixture = await seedRun(`EXPIRED-INVENTORY-${index}`, db);
+      fixtures.push(fixture);
+      const binding = { companyId, issueId: fixture.issueId, runId: fixture.runId };
+      const root = resolve(runtimeRoot, fixture.runId);
+      await db.update(nativeRunFinalizations).set({ controllerBootId: successor.bootId,
+        controllerGeneration: 1, leaseOwner: "inventory-owner", leaseExpiresAt: new Date(Date.now() + 60_000),
+      }).where(eq(nativeRunFinalizations.runId, fixture.runId));
+      const authority = new DurablePrpControlPlane({ stateDirectory: resolve(root, "control-plane"),
+        identity: transportOptions(fixture, root).prpIdentity,
+        expectedRunnerVersion: "inventory-fixture", expectedRunnerDigest: `sha256:${"a".repeat(64)}` });
+      try { await registerNativeRunnerCheckpoint({ db, binding, bootId: successor.bootId, authority }); }
+      finally { await authority.stop(); }
+    }
+    const eligible = fixtures.at(-1)!;
+    const ids = fixtures.map(fixture => fixture.runId);
+    // This test controls the predecessor's abandoned lease, never the claim's new deadline.
+    await db.update(nativeRunFinalizations).set({ leaseExpiresAt: new Date(Date.now() - 1_000) })
+      .where(inArray(nativeRunFinalizations.runId, ids));
+    await db.update(issues).set({ executionRunId: null })
+      .where(inArray(issues.id, fixtures.slice(0, -1).map(fixture => fixture.issueId)));
+    await db.update(heartbeatRuns).set({ runnerProfileJson: {
+      nativeWorkspaceSync: { schema: "paperclip.native-workspace-sync/v1", state: "prepared",
+        descriptorSha256: "a".repeat(64), baselineSha256: "b".repeat(64), workspaceId: "workspace",
+        leaseId: "lease", providerLeaseId: "sandbox", remoteCwd: "/workspace" },
+      sessionCheckpoint: { identity: { companyId, agentId, issueId: eligible.issueId, runId: eligible.runId,
+        sessionId: eligible.native.normalizedSessionId }, providerSessionId: "surviving-inventory-provider" },
+    } }).where(eq(heartbeatRuns.id, eligible.runId));
+    const expired = await listExpiredNativeRunnerAuthorities(db, new Date(), ids);
+    expect(new Set(expired)).toEqual(new Set(ids));
+    const dispositions = await claimNativeRestartRecoveries({ db, runIds: expired,
+      controller: { ...successor, bootId: randomUUID() }, restartKind: "hard" });
+    expect(dispositions.filter(value => value.kind === "blocked" && value.reason === "issue_execution_lock_changed")).toHaveLength(100);
+    expect(dispositions.find(value => value.runId === eligible.runId)).toMatchObject({ kind: "reattach_remote_runner" });
+    expect(await listExpiredNativeRunnerAuthorities(db, new Date(), ids)).not.toContain(eligible.runId);
+    const [run] = await db.select().from(heartbeatRuns).where(eq(heartbeatRuns.id, eligible.runId));
+    expect(run).toMatchObject({ status: "running", nativeSessionId: eligible.native.normalizedSessionId });
+  }, 30_000);
 
   it("classifies every requested recovery candidate without an implicit 100-run cap", async () => {
     const db = createDb(temporary.connectionString);
