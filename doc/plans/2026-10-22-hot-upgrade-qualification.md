@@ -1255,3 +1255,19 @@ The first master-reconciled CI attempt loses seven runner services together at
 21:40:37 UTC. Their retained logs report shutdown and cancellation without test
 assertion failures. The subsequent source corrections require fresh CI; no
 successful run is inferred from the interrupted attempt or an older head.
+
+A further server review finds the expired-owner inventory query truncating its
+known active-run IDs at 100. Repeated blocked issue locks can therefore starve
+later recoverable runs. The query now returns all IDs from the caller's finite
+active inventory in the same scoped query; empty inventory still makes no SQL
+request. A 101-run real-Postgres regression retains 100 blocked owners and claims
+the original remaining remote execution. This host's Postgres support gate skips
+the fixture, so its execution in Linux CI is required before server merge. Server
+typecheck and the independent zero-query empty-inventory case pass locally.
+
+The additional standalone forbidden-import checker reports 11 escaped imports in
+existing controlled-eval, CI helper and instruction-test files. All those files
+and the checker are unchanged from master09d4ca533e. This pre-existing checker
+failure remains recorded; package-cycle boundaries, protocol manifest, module
+boundaries and UI token gates pass. Final combined workspace typecheck and
+production build pass after the committed-view and supervisor request fixes.
