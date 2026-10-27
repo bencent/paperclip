@@ -1,4 +1,4 @@
-import { randomBytes, randomUUID } from "node:crypto";
+import { createHash, randomBytes, randomUUID } from "node:crypto";
 import { homedir } from "node:os";
 import { redactEventPayload } from "../redaction.js";
 import { redactCurrentUserValue } from "../log-redaction.js";
@@ -12,12 +12,14 @@ import { drizzle } from "drizzle-orm/postgres-js";
 import { WebSocket } from "ws";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import {
-  agents, authUsers, companies, companyMemberships, createDb,
+  agentApiKeys, agents, authUsers, companies, companyMemberships, createDb,
   heartbeatRuns, issueAccessGrants, issues, type Db,
 } from "@paperclipai/db";
 import * as schema from "@paperclipai/db/schema/index";
 import { setupLiveEventsWebSocketServer } from "../realtime/live-events-ws.js";
 import { publishLiveEvent } from "../services/live-events.js";
+import { authorizationService, type AuthorizationActor } from "../services/authorization.js";
+import { getHeartbeatRunReadDecisions } from "../services/heartbeat-run-privacy.js";
 import { startRecoveryPostgres } from "./helpers/recovery-postgres.js";
 
 describe("live-event run read boundaries", () => {
@@ -153,6 +155,69 @@ describe("live-event run read boundaries", () => {
           .close(error => error ? reject(error) : resolve());
       });
       if (server.listening) await new Promise<void>((resolve, reject) => server.close(error => error ? reject(error) : resolve()));
+    }
+  });
+
+  it.each([false, true])("keeps transcript permissions current for agent sockets (negotiated=%s)", async negotiated => {
+    const companyId = randomUUID(), viewer = randomUUID(), issueId = randomUUID();
+    await db.insert(companies).values({ id: companyId, name: "Restricted live reads", issuePrefix: `RL${companyId.slice(0, 6)}` });
+    await db.insert(authUsers).values({ id: viewer, name: "Fixture operator", email: `${viewer}@example.test`, createdAt: new Date(), updatedAt: new Date() });
+    await db.insert(companyMemberships).values({ companyId, principalType: "user", principalId: viewer, membershipRole: "operator", status: "active" });
+    const restrictedPermissions = { trustPreset: "low_trust_review", authorizationPolicy: {
+      trustPreset: "low_trust_review", trustBoundary: { mode: "low_trust_review", companyId, rootIssueId: issueId },
+    } };
+    const [agent] = await db.insert(agents).values({ companyId, name: "Restricted viewer", adapterType: "process", permissions: restrictedPermissions }).returning();
+    await db.insert(issues).values({ id: issueId, companyId, title: "Allowed task", assigneeAgentId: agent.id, responsibleUserId: viewer });
+    const [run] = await db.insert(heartbeatRuns).values({ companyId, agentId: agent.id, scopeKind: "issue", issueId, status: "running" }).returning();
+    const token = randomBytes(32).toString("hex");
+    await db.insert(agentApiKeys).values({ companyId, agentId: agent.id, name: "Unscoped fixture", responsibleUserId: viewer,
+      keyHash: createHash("sha256").update(token).digest("hex") });
+    const actor: AuthorizationActor = { type: "agent", agentId: agent.id, companyId, source: "agent_key", onBehalfOfUserId: viewer };
+    const access = authorizationService(db);
+    const transcriptAllowed = async () => (await access.decide({ actor, action: "company_scope:read", resource: { type: "company", companyId } })).allowed;
+    // The task is readable; it is the additional HTTP transcript permission
+    // that must prevent native text, tool detail and legacy log delivery.
+    expect(await getHeartbeatRunReadDecisions(db, access, actor, [run])).toEqual([true]);
+    expect(await transcriptAllowed()).toBe(false);
+    const server = createServer();
+    const wss = setupLiveEventsWebSocketServer(server, db, { deploymentMode: "authenticated" });
+    server.listen(0, "127.0.0.1"); await once(server, "listening");
+    const socket = new WebSocket(`ws://127.0.0.1:${(server.address() as AddressInfo).port}/api/companies/${companyId}/events/ws`, {
+      headers: { authorization: `Bearer ${token}` },
+    });
+    const messages: Array<{ type: string; revision?: number; payload?: Record<string, unknown> }> = [];
+    socket.on("message", bytes => messages.push(JSON.parse(bytes.toString())));
+    const batch = async () => {
+      const start = messages.length, barrier = randomUUID();
+      publishLiveEvent({ companyId, type: "heartbeat.run.event", payload: { runId: run.id, seq: 1,
+        payload: { prpEvent: { eventType: "item.delta", payload: { text: "native-text-and-tool-detail" } } } } });
+      publishLiveEvent({ companyId, type: "heartbeat.run.log", payload: { runId: run.id, chunk: "legacy-log-content" } });
+      publishLiveEvent({ companyId, type: "heartbeat.run.status", payload: { runId: run.id, status: "running" } });
+      publishLiveEvent({ companyId, type: "agent.status", payload: { agentId: barrier, status: "idle" } });
+      await expect.poll(() => messages.some(message => message.payload?.agentId === barrier)).toBe(true);
+      return messages.slice(start);
+    };
+    try {
+      await once(socket, "open");
+      if (negotiated) {
+        socket.send(JSON.stringify({ type: "live.interests", version: 1, revision: 1, runIds: [run.id] }));
+        await expect.poll(() => messages.some(message => message.type === "live.subscribed")).toBe(true);
+      }
+      const denied = await batch();
+      expect(denied.some(message => message.type === "heartbeat.run.status")).toBe(true);
+      expect(denied.filter(message => ["heartbeat.run.event", "heartbeat.run.log"].includes(message.type))).toEqual([]);
+      await db.update(agents).set({ permissions: {} }).where(eq(agents.id, agent.id));
+      expect(await transcriptAllowed()).toBe(true);
+      expect((await batch()).filter(message => ["heartbeat.run.event", "heartbeat.run.log"].includes(message.type))).toHaveLength(2);
+      // A grant made after connection is not cached for the socket lifetime.
+      await db.update(agents).set({ permissions: restrictedPermissions }).where(eq(agents.id, agent.id));
+      expect(await transcriptAllowed()).toBe(false);
+      expect((await batch()).filter(message => ["heartbeat.run.event", "heartbeat.run.log"].includes(message.type))).toEqual([]);
+    } finally {
+      socket.terminate();
+      await Promise.all([...wss.clients].map(client => { const closed = new Promise<void>(resolve => client.on("close", resolve)); client.terminate(); return closed; }));
+      await new Promise<void>((resolve, reject) => (wss as typeof wss & { close(callback: (error?: Error) => void): void }).close(error => error ? reject(error) : resolve()));
+      await new Promise<void>((resolve, reject) => server.close(error => error ? reject(error) : resolve()));
     }
   });
 

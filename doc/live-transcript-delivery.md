@@ -3,7 +3,12 @@
 The company WebSocket is a presentation channel. Its subscriptions cannot change
 runner execution, PRP acknowledgements, recovery checkpoints, accounting, or
 canonical run logs. Authorization and redaction still run at delivery, including
-after access is revoked. A subscription is never an authorization grant.
+after access is revoked. A subscription is never an authorization grant. Full event
+rows and log chunks require the current `company_scope:read` permission used by
+HTTP transcript reads, as well as access to the run's task. A restricted agent
+can still receive authorized lifecycle and lightweight activity notifications.
+The check runs for each full delivery on both negotiated and older connections;
+changing a trust policy takes effect without reconnecting.
 
 ## Additive negotiation
 

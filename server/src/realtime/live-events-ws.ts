@@ -312,6 +312,13 @@ export function setupLiveEventsWebSocketServer(
         : payload.entityType === "issue" && typeof payload.entityId === "string" ? payload.entityId : null;
       const runId = typeof payload.runId === "string" ? payload.runId
         : payload.entityType === "heartbeat_run" && typeof payload.entityId === "string" ? payload.entityId : null;
+      if (event.type === "heartbeat.run.event" || event.type === "heartbeat.run.log") {
+        // Match HTTP event/log reads in addition to the task boundary below.
+        // Run interests grant no authority, and policy can change mid-connection.
+        const decision = await access.decide({ actor: context!.actor, action: "company_scope:read",
+          resource: { type: "company", companyId: event.companyId } });
+        if (!decision.allowed) return null;
+      }
       const readBindings: Parameters<typeof getHeartbeatRunReadDecisions>[3][number][] = [];
       if (issueId) {
         readBindings.push({ companyId: event.companyId, scopeKind: "issue", issueId });
