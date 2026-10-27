@@ -56,6 +56,9 @@ describe("public repository paid workflow security", () => {
     expect(manual).toContain('pnpm install --resolution-only --ignore-scripts --no-frozen-lockfile');
     expect(manual).toContain('PAPERCLIP_RUNNER_LOCK_SHA256=$lock_sha');
     expect(manual).toContain('docker logout ghcr.io');
+    expect(manual.indexOf('Apply reviewed qualification lock corrections')).toBeLessThan(manual.indexOf('Resolve source dependencies without lifecycle scripts'));
+    expect(manual).toContain('run: node tests/runner-e2e/prepare-report-lock.mjs');
+
   });
 
   it("uses the reviewed master branch for the first-party trusted PR workflow", async () => {
