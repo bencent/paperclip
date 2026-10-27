@@ -1467,3 +1467,10 @@ delivery/cost/WebSocket/toast batch first has four loopback EPERM failures and
 31 passes; its permitted repeat passes all 35 cases. The prior 28-case result
 excluded the toast file. Both outcomes remain recorded, and no hosted result
 is inferred from these local fault tests.
+
+Master `e9e84bb8a1` then adds migration 0390. The fifth reconciliation generates
+checkpoint migration 0391 with the identical prior idempotent DDL, preserving
+every master SQL file and journal entry. The five snapshots are 0387–0391.
+Migration checks, server typecheck and all 13 warm-admission/configuration
+variants pass after integration. Current-head CI and review remain required;
+prior source checks are not carried forward as a new-head pass.
