@@ -69,6 +69,10 @@ const {
         stop: vi.fn(async () => {}),
       },
       toolGateway: {
+        settleInterruptedActionReviews: vi.fn(async () => ({ scanned: 0 })),
+        nextActionReviewInterruptionAt: vi.fn(async () => null),
+        recoverApprovedActionReviews: vi.fn(async () => ({ scanned: 0, retry: false })),
+        approvedActionReviewCompanies: vi.fn(async () => []),
         sweepActionReviews: vi.fn(async () => ({ scanned: 0 })),
         sweepExpiredActionReviews: vi.fn(async () => ({ scanned: 0 })),
         nextActionReviewExpiryAt: vi.fn(async () => null),

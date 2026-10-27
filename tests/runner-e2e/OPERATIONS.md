@@ -911,6 +911,44 @@ receipts, conflicts, active requests, excess commitments, and the existing
 product, cleanup, feedback and trace checks still fail qualification.
 
 
+### Explicit bounded Daytona gateway qualification
+
+A manual manifest can set `remoteGateway: "cloudflare"` for the native Codex
+or Claude marker/feedback Daytona cells. Install `cloudflared` on the controller
+PATH, or set `PAPERCLIP_EVAL_CLOUDFLARED` to its executable path. Empty overrides
+use the PATH default. The parent starts its existing model
+gateway and native OTLP relay, then exposes only their authenticated endpoints
+through one owned HTTPS quick tunnel. It verifies a fresh health nonce before
+fixture setup, waits up to 120 seconds for registration and 120 seconds for
+public readiness, and does not retry tunnel creation or provider work.
+
+Only attempt-scoped tokens leave the controller. Provider and Braintrust keys
+stay in the parent; the fixture/server retains the existing Daytona provisioning
+credential separately. The model gateway still enforces its campaign allowance,
+request count, concurrency, deadline and receipt journal. The bridge streams
+responses and preserves terminal-usage draining after a client disconnect.
+The tunnel receives no ambient provider credentials or Cloudflare config. Its
+exposure closes at the campaign deadline or four hours after startup, whichever
+comes first, and on attempt cleanup. Owned gateway,
+relay and tunnel cleanup failures remain failures. A configured remote route
+is not live acceptance; retain the actual Daytona result, cleanup, feedback,
+native traces and complete model receipts.
+
+The Daytona image runs Linux/x64. ARM or macOS controllers use the image's
+verified daemon by default; only an explicit cross-compiled remote override
+replaces it.
+
+Daily and weekly selections remain local. This explicit remote option adds no
+scheduled coverage or public report publication.
+
+The worker generates the attempt's trace parent. The relay validates the project
+in both the header and payload, but does not pin that worker-generated parent.
+Treat the attempt OTLP token as authority to submit trace attribution within
+this eval project. Keep it limited to the trusted harness/provider runtime;
+never expose it to test prompts or unrelated clients. The project check is not
+an attempt-isolation guarantee. Indexing verification is a separate retained
+or scheduled check; the manual launcher alone does not perform it.
+
 ### Hosted report dependencies
 
 The trusted report job applies a reviewed `report-lock.patch` before its frozen
@@ -920,3 +958,9 @@ without registry resolution. The worker target and its lock artifact never
 control report dependencies. An unknown committed lock fails before install;
 update and review this correction when dependency inputs change. The original
 failed run remains failed when retained evidence gets a new presentation.
+
+The trusted authorization job checks this correction before catalog/build and
+paid work. Unknown dependency locks fail before model admission. Manual history
+publication applies the same correction before its frozen install. Qualification
+image builds apply it only when target and workflow revisions match; a different
+target keeps its own lock and does not require these reporting helper files.

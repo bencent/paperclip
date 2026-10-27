@@ -1888,6 +1888,17 @@ TLS and protocol metadata. To use an isolated external database, set
 `PAPERCLIP_CONTINUATION_BENCHMARK_DATABASE_URL` to a disposable database ending
 in `_test`. The harness applies migrations there and adds synthetic fixtures.
 
+Continuation history reads select completed tool receipts and the typed
+conversation/workspace recovery fields used to choose the prior terminal run.
+Every completed receipt keeps its full result. Receipt order, company/agent/task
+scope, and the complete retained history stay unchanged. Saved results remain
+available to detail, recovery, and execution paths.
+Use `pnpm --filter @paperclipai/server exec tsx ../scripts/benchmark-continuation-history.ts --baseline-ref=<pre-fix-commit>`
+to compare generated SQL, complete continuation envelopes, and DataRow bytes.
+The benchmark includes a large required-receipt control. Its external database
+option is `PAPERCLIP_CONTINUATION_HISTORY_BENCHMARK_DATABASE_URL`, with the same
+disposable `_test` database restriction.
+
 Retry scheduling is in `server/src/services/heartbeat/retries.ts`. It owns bounded
 retry schedules, connection and workspace contention deferrals, shared-workspace
 holder checks, due retry promotion, and retry-now requests. `createHeartbeatRetries`
@@ -2019,7 +2030,7 @@ agent conversion are outside this playbook.
 
 ## Paperclip Runner Adapter Conversion
 
-Paperclip Runner offers native Codex, OpenCode, **ACPX Claude**, and **ACPX Pi**. New
+Paperclip Runner offers native Codex, OpenCode, **ACPX Claude**, **ACPX Grok Build**, and **ACPX Pi**. New
 Claude Code agents default to ACPX Claude on Apple Silicon, Intel Mac, Linux x64
 and Linux ARM64 with supported glibc. New OpenCode and Pi agents default to their native
 runtimes on Apple Silicon, Intel Mac, and Linux x64 with supported glibc;
@@ -2030,11 +2041,15 @@ requires matching remote assets. The runner override is in Advanced. Ordinary Cl
 and provider routing remain authoritative. Existing agents keep their saved runner. Converting an existing Claude, Codex, OpenCode, or Pi agent selects its
 corresponding provider, preserves compatible models, credentials, workspace,
 and instructions, and resets execution sessions while retaining run history.
+Grok Build uses its qualified macOS ARM64 and Linux x64 targets. Its conversion
+preserves the selected model, account, and explicit reasoning effort through ACP.
+Custom commands, extra arguments, legacy permission modes, search flags, and
+nonzero turn limits require Legacy; conversion rejects them before saving.
 Other adapters require an explicit provider choice. Legacy ACPX Codex agent
 settings normalize to native Codex on configuration updates and before fresh
 runs; immutable run descriptors remain readable. The **Paperclip Runner**
 experimental setting applies to other native providers. Native Codex, OpenCode,
-ACPX Claude, and ACPX Pi do not require it. Company access checks still apply.
+ACPX Claude, ACPX Grok Build, and ACPX Pi do not require it. Company access checks still apply.
 
 Native Codex preserves an explicit `adapterConfig.search: false` when converting
 or saving an agent. The disabled hosted-search policy is recorded in the native
@@ -3366,6 +3381,35 @@ pnpm --filter @paperclipai/server exec tsx ../scripts/benchmark-workspace-prepar
 
 It compares actual preparation guards with synthetic history. Local timings are
 separate from Git materialization, environment acquisition, and provider startup.
+
+### Sidebar badge run-query benchmark
+
+The badge query keeps the newest 200 runs of nonterminated same-company agents.
+It selects each agent's first observed run before status or Mine filters. An
+observation ordinal preserves equal-time input order. Per-agent ranking orders
+by full creation time first, then that ordinal for exact ties. SQL returns only failure
+IDs, issue bindings, and creation times. Dismissals and fresh issue authorization
+still run in the service.
+
+Run the synthetic PostgreSQL comparison with a pinned pre-change revision:
+
+```sh
+PAPERCLIP_LOG_LEVEL=error SIDEBAR_REQUIRE_BYTE_REDUCTION=1 pnpm --filter @paperclipai/server exec tsx ../scripts/benchmark-sidebar-badges.ts --baseline-ref=bf3ef12f3a78d0b15a32ad57f7e16520fbf6cd5e
+```
+
+The harness starts disposable embedded PostgreSQL by default. To use an existing
+isolated test database with current migrations, set
+`PAPERCLIP_SIDEBAR_TEST_DATABASE_URL` to a dedicated database whose name ends in
+`_test`. The harness removes only its own synthetic company fixtures. Do not use
+a development or hosted company database.
+
+The report includes service-generated SQL, complete badge equality, candidate
+bindings, alternating warm samples, plans, and UTF-8 response-value bytes before
+Drizzle decoding. This byte count excludes protocol framing. The mixed fixture
+covers shared agents, superseding successes, timestamp ties, Mine users,
+dismissal equality, private and deleted issues, and more than 200 runs. The
+all-failed, all-succeeded, and empty controls expose neutral or slower paths.
+Timings describe local SQL work and do not establish hosted request latency.
 
 ### Budget accounting performance
 

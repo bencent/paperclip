@@ -1,8 +1,10 @@
 import type { Db } from "@paperclipai/db";
 import { DELIVERY_QUEUES, notifyDeliveryWork } from "./delivery-work-notifications.js";
 
-export function notifyToolReviewChange(transaction: object, companyId: string) {
-  return notifyDeliveryWork(transaction, DELIVERY_QUEUES.toolReviewExpiry, companyId);
+export async function notifyToolReviewChange(transaction: object, companyId: string) {
+  await notifyDeliveryWork(transaction, DELIVERY_QUEUES.toolReviewExpiry, companyId);
+  await notifyDeliveryWork(transaction, DELIVERY_QUEUES.toolReviewRecovery, companyId);
+  await notifyDeliveryWork(transaction, DELIVERY_QUEUES.toolReviewInterruption, companyId);
 }
 
 export function writeToolReviewChange<T>(db: Db, companyId: string, write: (transaction: Db) => Promise<T>): Promise<T> {
