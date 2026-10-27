@@ -2,17 +2,18 @@
 
 ## Main-server outage qualification
 
-The remote Codex `recover-controller` cell now defaults to SIGKILL, an observed
-one-second offline interval and retirement of the old controller cache. It uses
+The remote native Codex and Claude `recover-controller` cells default to SIGKILL,
+an observed 125-second offline interval and retirement of the old controller cache. They use
 natural ownership timing. The wrapper emits `controller-outage.json`; the grader
 requires distinct server processes, confirmed HTTP loss, cache retirement and the
 requested interval, in addition to same-run/provider-turn and finalization proof.
 Partial fault receipts remain in the attempt's private `control/` directory on
 failure. A successful task without the fault receipt cannot qualify.
 
-Use `PAPERCLIP_RUNNER_E2E_CONTROLLER_STOP_SIGNAL=SIGTERM` for graceful shutdown or
-`PAPERCLIP_RUNNER_E2E_CONTROLLER_OUTAGE_MS=300000` for the five-minute contract.
-Both settings are recorded; compare only matching configurations. The configured
+Use `PAPERCLIP_RUNNER_E2E_CONTROLLER_STOP_SIGNAL=SIGTERM` for graceful shutdown,
+`PAPERCLIP_RUNNER_E2E_CONTROLLER_OUTAGE_MS=1000` for an explicit one-second
+experiment, or `PAPERCLIP_RUNNER_E2E_CONTROLLER_OUTAGE_MS=300000` for the
+five-minute contract. These settings are recorded; compare only matching configurations. The configured
 duration is a minimum hold after confirmed HTTP loss. Shutdown and startup add
 to total recovery time; they do not extend the runner's seven-minute grace or the
 workflow's attempt deadline. `recover-controller` permits no automatic retries.
