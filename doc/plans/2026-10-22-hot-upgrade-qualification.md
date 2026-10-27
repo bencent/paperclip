@@ -1379,3 +1379,37 @@ cases cover missing, succeeded, failed, cancelled and timed-out runs in one read
 with no clock advance. This remains an unexercised boundary; it does not authorize
 a replacement task or claim active continuity after completion. These checks add
 no real harness turns, deployed artifacts, or hosted upgrade acceptance.
+
+
+### Partial outage receipts survive cleanup (October 27 review)
+
+The shared case-evidence collector now copies sanitized supervisor outage
+receipts from the temporary control directory into each case's snapshots before
+normal cleanup. This is independent of successful restart acknowledgements.
+Startup, HTTP readiness, and authenticated recovery failures therefore preserve
+the last recorded phase. Restart request files and temporary receipt writes are
+not copied. Ordinary cells with no outage retain their existing evidence path.
+
+Three filesystem regressions fail before the collector change. They use the
+normal replacement and evidence-packaging interfaces, delete the temporary root,
+and then read the published receipt. After the change, all 95 focused
+qualification cases and E2E typecheck pass. The tests also confirm redaction and
+existing log collection. This is evidence-retention proof, not hosted upgrade
+continuity or final performance qualification.
+
+
+### Current Linux recovery proof and fourth master integration
+
+Server source `9bb9d3417e` executes the previously missing contention case in
+Linux job 122521800018: fresh preparation passes in 62.808 seconds, genuine
+claim-lock contention passes in 1.227 seconds, and the 101-run expired-owner
+case passes in 3.828 seconds. That recovery lane finishes with 115 passes and
+five optional skips. These are source-attributed correctness receipts, not
+hosted upgrade or production load evidence.
+
+Master `3421366903` adds migration 0389. Integration `9c59bde1a9` preserves
+every master SQL file and journal entry, then appends the unchanged idempotent
+checkpoint DDL as 0390. Retained snapshots are 0386–0390. Migration checks and
+server typecheck pass. The local database owner/lifetime batch initially has
+two loopback-listener EPERM failures and 14 passes; with loopback permission
+all 16 cases pass. A new exact-head CI and review gate remains required.

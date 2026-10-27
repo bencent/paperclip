@@ -33,6 +33,7 @@ import {
 import { isImmutableDaytonaImage, runnerMatrix } from "./catalog.js";
 import { renderRunnerE2EDashboard } from "./dashboard.js";
 import { packageEvidence } from "./evidence.js";
+import { copySharedEvidence } from "./shared-evidence.js";
 import { classifyFailure } from "./failure-classifier.js";
 import { mustPreserveRecoveryState, shouldKeepFailedDiagnostics } from "./cleanup-verification.js";
 import { effectiveAutomaticRetryLimit, executeWithAutomaticRetry } from "./automatic-retry.js";
@@ -452,24 +453,6 @@ async function readResult(resultPath: string, fallback: RunnerE2EResult) {
   }
 }
 
-async function copySharedEvidence(privateRoot: string, casePrivateDir: string) {
-  for (const relative of [
-    "server.log",
-    "playwright.log",
-    "junit.xml",
-    "html-report",
-    "blob-report",
-    "playwright-output",
-  ]) {
-    await cp(
-      path.join(privateRoot, relative),
-      path.join(casePrivateDir, relative),
-      { recursive: true, force: true },
-    ).catch((error: NodeJS.ErrnoException) => {
-      if (error.code !== "ENOENT") throw error;
-    });
-  }
-}
 
 async function runAttempt(input: {
   executions: readonly MatrixExecution[];
@@ -826,7 +809,7 @@ async function runAttempt(input: {
         `attempt-${attempt}`,
       );
       await mkdir(casePrivateDir, { recursive: true });
-      await copySharedEvidence(privateDir, casePrivateDir);
+      await copySharedEvidence(privateDir, casePrivateDir, temporaryRoot, credentials);
       if (persistedStateError && persistenceCheckedExecutions.includes(candidate)) {
         const snapshots = path.join(casePrivateDir, "snapshots");
         await mkdir(snapshots, { recursive: true });
