@@ -16,7 +16,6 @@ export async function prepareReportLock(root = path.resolve(import.meta.dirname,
   if (sha256(patch) !== policy.patchSha256) throw new Error('Reviewed reporting lock patch changed');
   const result = execFileSync('git', ['apply', '--numstat', '-'], { cwd: root, input: patch, encoding: 'utf8' });
   if (!/^\d+\s+\d+\s+pnpm-lock\.yaml\n$/.test(result)) throw new Error('Reporting correction must change only the lockfile');
-  // Check the result in a temporary directory before changing the workspace lock.
   const temporary = await mkdtemp(path.join(tmpdir(), 'eval-reviewed-lock-'));
   try {
     await writeFile(path.join(temporary, 'pnpm-lock.yaml'), bytes);

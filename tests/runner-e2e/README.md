@@ -1268,7 +1268,11 @@ reviewed, hash-pinned `report-lock.patch` to the committed lock before its
 frozen install. It does not resolve registry versions at run time or accept a
 worker target lock. The patch changes existing package patch identities and
 links the already declared yaml dependency; existing package tarball integrity entries
-stay unchanged. The correction adds exactly yaml@2.9.1 with pinned integrity. Unknown lock contents fail before installation. The
+stay unchanged. The correction adds exactly yaml@2.9.1 with pinned integrity. The
+trusted authorization job rejects unknown locks before paid work. Manual history
+publication uses the same reviewed correction. Qualification image builds apply
+it only to a target equal to the workflow revision; other targets keep their own
+lock. Unknown lock contents fail before installation. The
 workflow definition, runner-group permission, and protected-environment
 deployment still come from the default branch. Do not select the target branch
 in GitHub's **Use workflow from** control.
