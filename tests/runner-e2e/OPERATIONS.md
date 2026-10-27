@@ -909,3 +909,12 @@ reservations and model-readiness status separately. It does not release any
 historical hold or certify a full-lifecycle vendor cost bound. Missing model
 receipts, conflicts, active requests, excess commitments, and the existing
 product, cleanup, feedback and trace checks still fail qualification.
+
+
+### Hosted report dependencies
+
+The trusted report job keeps a frozen dependency install. When its authorized
+worker source equals the workflow revision, it restores the resolved lock from
+the credential-free lock job by artifact ID and verifies its SHA-256 first.
+A report for a different manual target uses the trusted workflow lock instead;
+that target cannot choose dependencies for the privileged report process.

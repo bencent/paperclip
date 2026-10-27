@@ -553,6 +553,15 @@ describe("public repository paid workflow security", () => {
       "ref: ${{ needs.authorize.outputs.target_sha }}",
     );
     expect(reportJob).not.toContain("Download resolved target lockfile");
+    expect(reportJob).toContain("needs: [authorize, target_lock, catalog, daytona_image, test, test_recurring]");
+    for (const stepName of ["Download trusted report lockfile", "Restore trusted report lockfile"]) {
+      const step = reportJob.split(`      - name: ${stepName}\n`)[1]!.split("\n      - ")[0]!;
+      expect(step).toContain("if: needs.authorize.outputs.target_sha == github.sha");
+    }
+    expect(reportJob.indexOf("Restore trusted report lockfile")).toBeLessThan(reportJob.indexOf("Install pinned reporting dependencies"));
+    expect(reportJob).toContain('test "$TARGET_SHA" = "$GITHUB_SHA"');
+    expect(reportJob).toContain('test "$(git rev-parse HEAD)" = "$GITHUB_SHA"');
+
     expect(historyJob).toContain("ref: ${{ github.sha }}");
     expect(historyJob).not.toContain(
       "ref: ${{ needs.authorize.outputs.target_sha }}",
