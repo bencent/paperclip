@@ -1060,7 +1060,7 @@ describeEmbeddedPostgres("native runner restart recovery with real processes", (
   }, EMBEDDED_POSTGRES_TEST_TIMEOUT_MS);
 
   it.each(["preparation", "claim lock"])("gives a fresh remote claim its full lease through blocked %s", async (blockedPhase) => {
-    const fixture = await seedRun("FRESH-SLOW-PREPARATION");
+    const fixture = await seedRun(`FRESH-SLOW-${blockedPhase === "claim lock" ? "CLAIM-LOCK" : "PREPARATION"}`);
     const environmentId = randomUUID(), leaseId = randomUUID();
     await fixture.db.insert(environments).values({ id: environmentId, name: "Fresh preparation fixture", driver: "sandbox" });
     await fixture.db.insert(environmentLeases).values({ id: leaseId, companyId, environmentId,
