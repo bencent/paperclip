@@ -1763,6 +1763,10 @@ export class DurablePrpControlPlane {
   #persistedRevision = -1;
   #queuedRevision = -1;
   #lastCheckpoint?: DurablePrpCheckpoint;
+  #publishedState?: StoredCoreState;
+  #publishedStore?: DurablePrpControlPlaneStore;
+  #publicationCommands = new Map<string, { record: string; command: DurableRecoveryCoreCommand }>();
+  #visibleStateCache?: { working: StoredCoreState; published: StoredCoreState; revision: number; state: StoredCoreState };
   #checkpointPersistenceFailed = false;
   #persistenceTail = Promise.resolve();
   #sendQueues = new Map<AuthorityConnection, Promise<void>>();
@@ -1811,7 +1815,42 @@ export class DurablePrpControlPlane {
   }
 
   get store(): DurablePrpControlPlaneStore {
-    return this.#store;
+    return this.#publishedStore ?? this.#store;
+  }
+
+  #capturePublishedState(snapshot: DurablePrpCheckpoint): StoredCoreState {
+    const header = JSON.parse(snapshot.records.get("header")!) as CheckpointHeader;
+    const cursor = JSON.parse(snapshot.records.get("cursor")!) as { ackedSourceSeq: number; replayDeliveries: number };
+    const cached = new Map<string, { record: string; command: DurableRecoveryCoreCommand }>();
+    for (const [part, record] of snapshot.records) {
+      if (!part.startsWith("command:")) continue;
+      const prior = this.#publicationCommands.get(part);
+      cached.set(part, prior?.record === record ? prior : { record, command: JSON.parse(record) });
+    }
+    this.#publicationCommands = cached;
+    return { ...header.state, ...cursor, commands: [...cached.values()].map(value => value.command),
+      // Event records are immutable after insertion. Retain their array, not
+      // another deep copy of the streaming payload window.
+      committedEvents: this.#store.state.committedEvents };
+  }
+
+  #visibleState(): StoredCoreState {
+    const published = this.#publishedState!;
+    const working = this.#store.state;
+    const cached = this.#visibleStateCache;
+    if (cached?.working === working && cached.published === published && cached.revision === this.#store.revision) {
+      return cached.state;
+    }
+    // A warm handoff cannot expose its new authority before persistence.
+    if (canonicalJson(working.identity) !== canonicalJson(published.identity)) return published;
+    const barrier = this.#persistedRevision === this.#store.revision ? -1
+      : working.committedEvents.findIndex(event => event.sourceSeq > published.ackedSourceSeq && !isStreamingEvent(event));
+    const state = { ...published,
+      committedEvents: barrier < 0 ? working.committedEvents : working.committedEvents.slice(0, barrier),
+      ackedSourceSeq: barrier < 0 ? working.ackedSourceSeq : Math.min(working.ackedSourceSeq, working.committedEvents[barrier].sourceSeq - 1),
+    };
+    this.#visibleStateCache = { working, published, revision: this.#store.revision, state };
+    return state;
   }
 
   /** Sparse, already-acknowledged history; never permits gaps in new delivery. */
@@ -1830,6 +1869,10 @@ export class DurablePrpControlPlane {
     }
     this.#store.useExternalPersistence();
     this.#persistCheckpoint = persist;
+    this.#publishedState = this.#capturePublishedState(captureCheckpoint(this.#store.state,
+      this.#expectedRunnerVersion, this.#expectedRunnerDigest));
+    const core = this;
+    this.#publishedStore = { path: this.#store.path, get state() { return core.#visibleState(); } };
   }
 
   flushCheckpoint(): Promise<void> {
@@ -1839,6 +1882,7 @@ export class DurablePrpControlPlane {
     }
     const snapshot = captureCheckpoint(this.#store.state,
       this.#expectedRunnerVersion, this.#expectedRunnerDigest);
+    const published = this.#capturePublishedState(snapshot);
     const revision = this.#store.revision;
     this.#queuedRevision = revision;
     const persist = this.#persistCheckpoint;
@@ -1850,6 +1894,7 @@ export class DurablePrpControlPlane {
       try {
         await persist(checkpoint);
         this.#lastCheckpoint = checkpoint;
+        this.#publishedState = published;
         this.#persistedRevision = revision;
         this.#checkpointPersistenceFailed = false;
       } catch (error) {
@@ -1885,6 +1930,13 @@ export class DurablePrpControlPlane {
   }
 
   getCommand(commandId: string): DurableRecoveryCoreCommand | undefined {
+    const state = this.store.state;
+    return state.commands.find(command => command.commandId === commandId)
+      ?? (state.warmTransition?.command.commandId === commandId ? state.warmTransition.command : undefined)
+      ?? (state.completedWarmTransition?.command.commandId === commandId ? state.completedWarmTransition.command : undefined);
+  }
+
+  #getCommand(commandId: string): DurableRecoveryCoreCommand | undefined {
     return (
       this.#store.state.commands.find(
         (command) => command.commandId === commandId,
@@ -1909,7 +1961,7 @@ export class DurablePrpControlPlane {
       if (!semantic || event.runId !== identity.runId || event.normalizedSessionId !== identity.normalizedSessionId) continue;
       if (typeof semantic.callId !== "string" || typeof semantic.operationId !== "string") continue;
       const commandId = `command_tool_${createHash("sha256").update(`${identity.runId}\0${semantic.callId}`).digest("hex").slice(0, 32)}`;
-      if (this.#pendingSemanticCalls.has(commandId) || this.getCommand(commandId)) continue;
+      if (this.#pendingSemanticCalls.has(commandId) || this.#getCommand(commandId)) continue;
       this.#pendingSemanticCalls.add(commandId);
       try {
         const call = { callId: semantic.callId, operationId: semantic.operationId, input: semantic.input,
@@ -1918,7 +1970,7 @@ export class DurablePrpControlPlane {
             turnId: identity.turnId, itemId: event.itemId ?? identity.itemId } };
         const outcome = await this.#recoverSemanticToolInput(call);
         if (this.#identity !== identity || this.#semanticCallbacksRetired) return;
-        if (!outcome || this.getCommand(commandId)) continue;
+        if (!outcome || this.#getCommand(commandId)) continue;
         const { input, ...metadata } = call;
         this.queueCommand("semantic_tool.result", { ...metadata, inputDigest: canonicalDigest(input),
           result: outcome.result, isError: outcome.isError === true }, commandId, true);
@@ -2567,6 +2619,7 @@ export class DurablePrpControlPlane {
       )
         connection.replayOnly = true;
       this.#commandResult(connection, envelope);
+      await this.flushCheckpoint();
       return;
     }
     if (kind === "warm_transition_activated") {
@@ -3714,7 +3767,7 @@ export class DurablePrpControlPlane {
     const liveCommandId = liveCall ? `command_tool_${createHash("sha256")
       .update(`${identity.runId}\0${liveCall.callId}`).digest("hex").slice(0, 32)}` : null;
     const ownsLiveDispatch = existing === undefined && liveCommandId !== null
-      && !this.getCommand(liveCommandId) && !this.#pendingSemanticCalls.has(liveCommandId);
+      && !this.#getCommand(liveCommandId) && !this.#pendingSemanticCalls.has(liveCommandId);
     // Reserve the original callback before exposing its checkpoint wait to
     // recovery. A missing saved outcome must never suppress first dispatch.
     if (ownsLiveDispatch) this.#pendingSemanticCalls.add(liveCommandId!);
@@ -3722,7 +3775,7 @@ export class DurablePrpControlPlane {
     try {
       await this.flushCheckpoint();
       if (this.#eventOwner !== connection || this.#identity !== identity) return;
-      if (ownsLiveDispatch && liveCall && liveCommandId && this.#onSemanticToolInput && !this.getCommand(liveCommandId)) {
+      if (ownsLiveDispatch && liveCall && liveCommandId && this.#onSemanticToolInput && !this.#getCommand(liveCommandId)) {
         const call = liveCall;
         const commandId = liveCommandId;
         const recordFailure = (stage: "persist_result" | "dispatch", error: unknown) => {
