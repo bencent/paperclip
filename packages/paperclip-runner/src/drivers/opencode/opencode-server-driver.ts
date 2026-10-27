@@ -2167,7 +2167,7 @@ class OpenCodeHarnessSession implements HarnessSession {
   }
 }
 
-/** Retain the reusable gateway key in the runner; the harness gets a session-scoped capability. */
+/** Keep the upstream key in the parent; the child gets a loopback-only, session-lived capability. */
 async function startOpenCodeProviderProxy(baseUrl: string, key: string, model: string, environment: NodeJS.ProcessEnv) {
   const upstreamUrl = new URL(`${baseUrl.replace(/\/+$/, "")}/chat/completions`);
   const token = randomBytes(32).toString("base64url");
@@ -2323,14 +2323,15 @@ async function startRuntime(input: {
   const identityKey = input.options.environment?.PAPERCLIP_AGENT_PRIVATE_KEY;
   const identityValues = identityKey ? [identityKey, JSON.stringify(identityKey).slice(1, -1),
     ...identityKey.split(/\r?\n/).filter(line => line && !line.startsWith("-----"))] : [];
+  const providerEnvironment = input.options.environment ?? process.env;
   const sensitiveValues = [
     ...identityValues,
     password,
     authHeader,
     bridge.secret,
     assignedMcp?.token,
-    input.options.environment?.OPENROUTER_API_KEY,
-    input.options.environment?.PAPERCLIP_AI_PROVIDER_KEY,
+    providerEnvironment.OPENROUTER_API_KEY,
+    providerEnvironment.PAPERCLIP_AI_PROVIDER_KEY,
   ].filter((value): value is string => Boolean(value));
   input.trace?.addSensitiveValues(sensitiveValues);
   const instructionRoot =
@@ -2346,8 +2347,13 @@ async function startRuntime(input: {
   if (instructionRoot) externalDirectories[`${instructionRoot}/**`] = "allow";
   const [modelProvider, ...modelIdParts] = input.options.model.split("/");
   const providerModelId = modelIdParts.join("/");
-  const providerProxy = modelProvider === "paperclip" && input.options.environment?.PAPERCLIP_AI_PROVIDER_URL
-    ? await startOpenCodeProviderProxy(input.options.environment.PAPERCLIP_AI_PROVIDER_URL, input.options.environment.PAPERCLIP_AI_PROVIDER_KEY ?? "", providerModelId, input.options.environment).catch(async error => {
+  const providerRoute = modelProvider === "openrouter"
+    ? { baseUrl: "https://openrouter.ai/api/v1", key: providerEnvironment.OPENROUTER_API_KEY ?? "" }
+    : modelProvider === "paperclip" && input.options.environment?.PAPERCLIP_AI_PROVIDER_URL
+      ? { baseUrl: input.options.environment.PAPERCLIP_AI_PROVIDER_URL, key: input.options.environment.PAPERCLIP_AI_PROVIDER_KEY ?? "" }
+      : null;
+  const providerProxy = providerRoute
+    ? await startOpenCodeProviderProxy(providerRoute.baseUrl, providerRoute.key, providerModelId, providerEnvironment).catch(async error => {
         await bridge.close().catch(() => {});
         await removeIsolatedHome(isolatedHome).catch(() => {});
         throw error;
@@ -2397,8 +2403,9 @@ async function startRuntime(input: {
           ...(modelProvider === "openrouter" ? { options: { headers: OPENROUTER_ATTRIBUTION_HEADERS } } : {}),
           ...(providerProxy ? {
             npm: "@ai-sdk/openai-compatible",
-            name: "Paperclip connection",
+            name: modelProvider === "openrouter" ? "OpenRouter" : "Paperclip connection",
             options: {
+              ...(modelProvider === "openrouter" ? { headers: OPENROUTER_ATTRIBUTION_HEADERS } : {}),
               baseURL: providerProxy.baseURL,
               apiKey: providerProxy.token,
             },
@@ -2960,7 +2967,6 @@ function sanitizedEnvironment(
     "ALL_PROXY",
     "SSL_CERT_FILE",
     "SSL_CERT_DIR",
-    "OPENROUTER_API_KEY",
   ];
   const result: NodeJS.ProcessEnv = {};
   const candidate = source ?? process.env;
@@ -2982,7 +2988,6 @@ function sanitizedEnvironmentKeys(): string[] {
     "ALL_PROXY",
     "SSL_CERT_FILE",
     "SSL_CERT_DIR",
-    "OPENROUTER_API_KEY",
   ];
 }
 
