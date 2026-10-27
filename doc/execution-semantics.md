@@ -2457,3 +2457,8 @@ the orphan sweep. It does not truncate that inventory at 100 rows: blocked issue
 locks can retain expired owners across sweeps, and must not starve later valid
 runners. This remains one scoped query and performs no checkpoint query when
 that inventory is empty. It does not scan retained completed history.
+
+Fresh execution claims start their lease from the database wall clock in the
+final claim update, after run-row locks and replacement-history reads. Lock
+contention cannot consume the new remote controller's 60-second lease before
+renewal begins at commit. Recovery claims use the same clock rule.
