@@ -1312,3 +1312,21 @@ with the same idempotent DDL. Snapshots 0384–0388, numbering/safety and server
 typecheck pass. Each updated candidate still needs fresh CI and exact-head
 review. Hosted performance, different-artifact upgrade and rollback gates remain
 open; merging source does not qualify them.
+
+The replacement-smoke driver also now guards database setup. Its real executable
+previously exits without a saved report for both an invalid database URL and a
+refused loopback connection. Both cases fail before the correction and pass
+afterward, alongside the three existing cleanup cases. Reports distinguish
+whether a database or wrapper was created, and cleanup touches only registered
+resources. Initial typechecking finds a query-result inference error; an explicit
+result type corrects it and the E2E typecheck passes. This experiment starts no
+server and runs no provider turn; it qualifies failure evidence, not continuity.
+
+Transcript-head `405bedd189` has a serialized CI shard failure during the
+unchanged scheduled-retry route fixture's teardown: a late wakeup references an
+agent between deletion of wakeups and agents. The shard reports 283 passes and
+one failure. The same serialized shard passes at server-head `d1513f8311` with the
+same route test. The failure remains retained; the forthcoming qualification
+correction changes the successor head, so the superseded job is not retried.
+Fresh current-head CI remains mandatory; this is not a transcript assertion pass
+or a waived gate.

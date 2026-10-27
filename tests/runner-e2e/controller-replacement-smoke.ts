@@ -32,29 +32,12 @@ console.info(JSON.stringify({ started: true, evidence: reportPath }));
 const report: Record<string, unknown> = { schema: "paperclip.e2e.controller-replacement-smoke/v1",
   sourceRevision: execFileSync("git", ["rev-parse", "HEAD"], { cwd: repositoryRoot, encoding: "utf8" }).trim(),
   sourceDirty: execFileSync("git", ["status", "--porcelain"], { cwd: repositoryRoot, encoding: "utf8" }).trim().length > 0,
-  outage, providerTurns: 0, activeAgentContinuityQualified: false, cleanupConfirmed: false };
-const port = await reserveRunnerE2EServerPort();
-// The database belongs to this driver, never to either server process tree.
-const database = await (async () => {
-  const external = process.env.PAPERCLIP_TEST_DATABASE_URL;
-  if (!external) {
-    if (upgrades) throw new Error("Artifact migration proof requires PAPERCLIP_TEST_DATABASE_URL; the embedded test helper pre-migrates its database");
-    return startEmbeddedPostgresTestDatabase("controller-replacement-smoke-");
-  }
-  // Create an empty database. Artifact A must apply its own migrations before B
-  // sees it. Never migrate with source code or modify the supplied database.
-  const name = `upgrade_${randomUUID().replaceAll("-", "")}`;
-  const admin = createDb(external);
-  try { await admin.$client.unsafe(`create database "${name}"`); }
-  finally { await admin.$client.end(); }
-  const url = new URL(external); url.pathname = `/${name}`;
-  return { connectionString: url.toString(), cleanup: async () => {
-    const cleanup = createDb(external);
-    try { await cleanup.$client.unsafe(`drop database "${name}"`); }
-    finally { await cleanup.$client.end(); }
-  } };
-})();
-const db = createDb(database.connectionString);
+  outage, providerTurns: 0, activeAgentContinuityQualified: false, cleanupConfirmed: false,
+  databaseCreated: false, wrapperStarted: false };
+// Register resources only after creation so setup failures still have evidence
+// and cleanup never assumes a database or client exists.
+let database: { connectionString: string; cleanup(): Promise<void> } | undefined;
+let db: ReturnType<typeof createDb> | undefined;
 const log = createWriteStream(path.join(temporaryRoot, "wrapper.log"), { mode: 0o600 });
 const stopper = createRunnerE2EServerStopper({ gracefulTimeoutMs: 35_000, forcedTimeoutMs: 5_000,
   hasSpawnError: () => false, markExpectedStop: () => {}, log: message => log.write(message) });
@@ -63,6 +46,30 @@ let failure: unknown;
 let ownedPostgresProcessId: number | null | undefined = process.env.PAPERCLIP_TEST_DATABASE_URL ? null : undefined;
 report.databaseCleanupScope = ownedPostgresProcessId === null ? "owned_database" : "owned_cluster_process";
 try {
+  const port = await reserveRunnerE2EServerPort();
+  // The database belongs to this driver, never to either server process tree.
+  const external = process.env.PAPERCLIP_TEST_DATABASE_URL;
+  if (!external) {
+    if (upgrades) throw new Error("Artifact migration proof requires PAPERCLIP_TEST_DATABASE_URL; the embedded test helper pre-migrates its database");
+    database = await startEmbeddedPostgresTestDatabase("controller-replacement-smoke-");
+  } else {
+    // Create an empty database. Artifact A applies its own migrations before B.
+    // Record ownership before closing the admin client, which can itself fail.
+    const name = `upgrade_${randomUUID().replaceAll("-", "")}`;
+    const url = new URL(external); url.pathname = `/${name}`;
+    const admin = createDb(external);
+    try {
+      await admin.$client.unsafe(`create database "${name}"`);
+      database = { connectionString: url.toString(), cleanup: async () => {
+        const cleanup = createDb(external);
+        try { await cleanup.$client.unsafe(`drop database "${name}"`); }
+        finally { await cleanup.$client.end(); }
+      } };
+      report.databaseCreated = true;
+    } finally { await admin.$client.end(); }
+  }
+  report.databaseCreated = true;
+  db = createDb(database.connectionString);
   if (ownedPostgresProcessId !== null) {
     const [owner] = await db.$client`select split_part(pg_read_file('postmaster.pid', 0, 64), chr(10), 1)::int as pid`;
     const pid = Number(owner?.pid);
@@ -84,6 +91,7 @@ try {
     PAPERCLIP_RUNNER_E2E_EXECUTION_IDS: JSON.stringify(["everyday-workflows.runner-codex.daytona.recover-controller"]) };
   wrapper = spawn(process.execPath, runnerE2ETypeScriptProcessArgs(repositoryRoot, path.join(import.meta.dirname, "server.ts")),
     { cwd: repositoryRoot, env: source, detached: process.platform !== "win32", stdio: ["ignore", "pipe", "pipe"] });
+  wrapper.once("spawn", () => { report.wrapperStarted = true; });
   wrapper.stdout!.pipe(log, { end: false }); wrapper.stderr!.pipe(log, { end: false });
   const stopped = new Promise<void>((resolve, reject) => { wrapper!.once("error", reject); wrapper!.once("close", () => resolve()); });
   void stopped.catch(() => {});
@@ -108,7 +116,7 @@ try {
   }
   await poll(() => api("/health").catch(() => null), health => health?.status === "ok", 180_000);
   const company = await api("/companies", { name: `Restart smoke ${randomUUID()}` });
-  const [before] = await db.$client`select pg_postmaster_start_time()::text as started`;
+  const [before] = await db.$client<{ started: string }[]>`select pg_postmaster_start_time()::text as started`;
   const receipts: unknown[] = [];
   for (let index = 1; index < (upgrades?.sequence.length ?? 2); index += 1) {
     // Empty fixture cache exercises retirement without pretending a runner exists.
@@ -128,7 +136,7 @@ try {
     report.replacements = receipts;
     await writeFile(reportPath, `${JSON.stringify(report, null, 2)}\n`, { mode: 0o600 });
     assert.equal((await api(`/companies/${company.id}`)).id, company.id);
-    const [after] = await db.$client`select pg_postmaster_start_time()::text as started`;
+    const after: { started: string } = (await db.$client<{ started: string }[]>`select pg_postmaster_start_time()::text as started`)[0]!;
     assert.equal(after.started, before.started, "Postgres must remain alive across the web-server replacement");
     await api("/companies", { name: `New admission after restart ${randomUUID()}` });
   }
@@ -140,7 +148,11 @@ try {
   Object.assign(report, { passed: false, error: error instanceof Error ? error.message : String(error) });
 } finally {
   const cleanupErrors: string[] = [];
-  for (const cleanup of [() => stopper.stopAll(), () => db.$client.end(), () => cleanupControllerSmokeDatabase(database, ownedPostgresProcessId)]) {
+  const cleanups: Array<() => Promise<unknown>> = [];
+  if (wrapper) cleanups.push(() => stopper.stopAll());
+  if (db) { const client = db.$client; cleanups.push(() => client.end()); }
+  if (database) { const owned = database; cleanups.push(() => cleanupControllerSmokeDatabase(owned, ownedPostgresProcessId)); }
+  for (const cleanup of cleanups) {
     try { await cleanup(); }
     catch (error) { failure ??= error; cleanupErrors.push(error instanceof Error ? error.message : String(error)); }
   }
