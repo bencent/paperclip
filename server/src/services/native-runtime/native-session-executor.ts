@@ -12444,6 +12444,10 @@ async function createRunnerdBackendWithinSessionClaim(
           manifest: expected, installation,
           provider: input.execution.provider as { kind: "opencode" } | { kind: "acpx"; agent: string },
           requireExactIdentity: reattachProviderPack || explicitProviderPackSelection,
+          // The compatible image proxy may predate the opt-in collector. Keep
+          // recovery pinned, and require current proxy bytes only for fresh diagnostics.
+          requireCurrentOpenCodeProxy: !reattachProviderPack
+            && runnerEnvironment?.PAPERCLIP_OPENCODE_PERFORMANCE_DIAGNOSTICS === "1",
         }));
         if (!reattachProviderPack) providerPackAuthority!.select(manifest);
         expectedProviderPackManifest = manifest;
