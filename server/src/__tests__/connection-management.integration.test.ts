@@ -110,6 +110,17 @@ describe("connection management with production default agents", () => {
     expect(await service.capability(actor, "connections:profiles", resource)).toMatchObject({ allowed: false });
     expect(await compare(resource, [])).toEqual([]);
     expect((await compare(resource, [candidateIds[1], candidateIds[0], candidateIds[1]])).map(result => result.allowed)).toEqual([true, true, true]);
+    // A saved empty text target leaves the candidate ID in the ordinary
+    // evaluator's resolved policy input, so it is not a shared target prefix.
+    await server.db.insert(toolConnectionInstalls).values({ companyId: f.companyId, connectionId: connection.id, targetType: "agent", targetId: "" });
+    const emptyTargetCandidates = [candidateIds[2], candidateIds[0]];
+    const emptyTargetBaseline = [];
+    for (const targetAgentId of emptyTargetCandidates) {
+      emptyTargetBaseline.push(await service.capability(actor, "connections:profiles", { ...resource, targetAgentId }));
+    }
+    expect(emptyTargetBaseline.map(capability => capability.allowed)).toEqual([false, true]);
+    expect(await service.describeAgentInstallCapabilities(actor, resource, emptyTargetCandidates)).toEqual(emptyTargetBaseline);
+    await server.db.delete(toolConnectionInstalls).where(eq(toolConnectionInstalls.connectionId, connection.id));
     await server.db.insert(toolConnectionInstalls).values({ companyId: f.companyId, connectionId: connection.id, targetType: "agent", targetId: candidateIds[0] });
     expect((await compare()).map(result => result.allowed)).toEqual([true, true, false]);
     await server.db.insert(toolConnectionInstalls).values({ companyId: f.companyId, connectionId: connection.id, targetType: "agent", targetId: candidateIds[2] });

@@ -387,12 +387,16 @@ export function connectionManagementService(db: Db) {
       return describeRemaining(1);
     }
     const resolved = prepared.resource;
+    const isCanonicalAgentId = (id: string) => isUuidLike(id) && id === id.toLowerCase();
     const eligible = actor.type === "board" && prepared.savedNonAiConnection
       && [resolved.profileId, resolved.gatewayId, resolved.routineId, resolved.projectId, resolved.issueId].every(id => id == null)
       && !Object.hasOwn(resolved, "requestedProvider") && !Object.hasOwn(resolved, "requestedInstallCompanyIds")
       && !resolved.selfServiceAgentInstalls
       && !prepared.referencedConnections.length && !prepared.currentGatewayResource
-      && candidates.every(id => isUuidLike(id) && id === id.toLowerCase());
+      && candidates.every(isCanonicalAgentId)
+      // A saved empty selector resolves against the current candidate in the
+      // ordinary evaluator. Such retained checks cannot be shared.
+      && [...prepared.expandedTargets].every(isCanonicalAgentId);
     if (!eligible) {
       // Consume the already prepared first evaluation. Restarting it can repeat
       // recursive checks or run-identity reconciliation and its locking effects.

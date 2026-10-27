@@ -169,6 +169,20 @@ describe("connection agent-install capability batches", () => {
     expect(await f.management.describeAgentInstallCapabilities(actor, resource, [agentId(0)])).toEqual(expected);
   });
 
+  it("preserves candidate-dependent policy checks for an empty retained agent selector", async () => {
+    const f = fixture();
+    f.state.creatorId = "another-user";
+    f.state.grants.set("tools:manage_profiles", { targetAgentIds: [agentId(1)] });
+    f.state.installs = [{ targetType: "agent", targetId: "" }];
+    const expected = await f.baseline();
+    expect(expected.map(result => result.allowed)).toEqual([false, true, false]);
+    expect(await f.management.describeAgentInstallCapabilities(actor, resource, f.candidates)).toEqual(expected);
+    const laterFault = new Error("later allowed candidate database fault");
+    f.state.targetErrors.set(agentId(1), laterFault);
+    await expect(f.baseline()).rejects.toBe(laterFault);
+    await expect(f.management.describeAgentInstallCapabilities(actor, resource, f.candidates)).rejects.toBe(laterFault);
+  });
+
   it("preserves output for retained candidates, new candidates and duplicates in the same batch", async () => {
     const f = fixture();
     f.state.installs = [{ targetType: "agent", targetId: agentId(0) }];
@@ -328,6 +342,19 @@ describe("connection agent-install capability batches", () => {
     f.reads.connections = 0;
     expect(await f.management.describeAgentInstallCapabilities(actor, resource, candidates)).toEqual(expected);
     expect(f.reads.connections).toBe(candidates.length);
+  });
+
+  it.each([
+    "AAAAAAAA-0000-4000-8000-000000000001",
+    "not-a-uuid",
+  ])("uses ordinary evaluation without repeating preparation for retained selector %j", async targetId => {
+    const f = fixture();
+    f.state.installs = [{ targetType: "agent", targetId }];
+    const expected = await f.baseline();
+    expect(expected.every(result => !result.allowed)).toBe(true);
+    f.reads.connections = 0;
+    expect(await f.management.describeAgentInstallCapabilities(actor, resource, f.candidates)).toEqual(expected);
+    expect(f.reads.connections).toBe(f.candidates.length);
   });
 
   it.each(["profileId", "gatewayId", "routineId"] as const)("retains ordinary denial behavior for a missing %s selector", async selector => {

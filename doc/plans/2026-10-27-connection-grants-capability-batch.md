@@ -90,7 +90,9 @@ The initial optimized shape is deliberately explicit:
 - No own `requestedProvider` or `requestedInstallCompanyIds` property, and no
   `selfServiceAgentInstalls: true` request.
 - Validated, nonempty roster IDs in their original spelling and input order.
-  Unusual identifier inputs use the ordinary path rather than normalization.
+  Retained target IDs must also be canonical and nonempty. Unusual identifiers
+  use the ordinary path rather than normalization: a saved empty target is a
+  candidate-dependent selector in the legacy evaluator.
 
 Use the saved connection's provider, purpose, and creator derivation, including
 its ordinary personal-grant handling. Caller labels cannot establish eligibility.
