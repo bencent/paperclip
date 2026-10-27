@@ -118,6 +118,13 @@ describe("remote restart lifecycle evidence", () => {
       .find(check => check.id === "remote-restart-all-replacements")!.passed;
     expect(grade([first])).toBe(false);
     expect(grade([first, second])).toBe(true);
+    for (const field of ["runnerInstanceId", "nativeSessionId"] as const) {
+      expect(grade([{ ...first, outage: { ...first.outage, recovery: { ...first.outage.recovery!, [field]: "another" } } }, second])).toBe(false);
+    }
+    for (const field of ["companyId", "issueId"] as const) {
+      expect(grade([{ ...first, outage: { ...first.outage, recovery: { ...first.outage.recovery!,
+        binding: { ...first.outage.recovery!.binding, [field]: "another" } } } }, second])).toBe(false);
+    }
     expect(grade([first, { ...second, outage: { ...second.outage, recovery: undefined } }])).toBe(false);
     expect(grade([first, { ...second, outage: { ...second.outage, previousArtifact: A } }])).toBe(false);
   });

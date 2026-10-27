@@ -68,3 +68,29 @@ it("keeps ordinary evidence collection working when no outage was requested", as
     expect(await readdir(caseDir)).toEqual(["server.log"]);
   } finally { await rm(root, { recursive: true, force: true }); }
 });
+
+it("retains sanitized corrupt receipt evidence without losing healthy receipts or logs", async () => {
+  const root = await mkdtemp(path.join(tmpdir(), "corrupt-outage-evidence-"));
+  const temporaryRoot = path.join(root, "temporary"), privateRoot = path.join(temporaryRoot, "private");
+  const caseDir = path.join(privateRoot, "case"), uploadDir = path.join(root, "published");
+  const { controlDirectory } = runnerE2EServerControlPaths(temporaryRoot);
+  const secret = "synthetic-corrupt-receipt-secret";
+  try {
+    await mkdir(controlDirectory, { recursive: true }); await mkdir(caseDir, { recursive: true });
+    await writeFile(path.join(privateRoot, "server.log"), "original failure retained\n");
+    await writeFile(path.join(controlDirectory, "controller-outage-a-broken.json"), `{"note":"${secret}"`);
+    await writeFile(path.join(controlDirectory, "controller-outage-z-good.json"), JSON.stringify({ requestId: "good", stoppedAfterMs: 10 }));
+    await copySharedEvidence(privateRoot, caseDir, temporaryRoot, [secret]);
+    const result = await packageEvidence({ privateDir: caseDir, uploadDir, secrets: [secret], expectPassScreenshot: false });
+    await rm(temporaryRoot, { recursive: true, force: true });
+    expect(result.leaks).toEqual([]);
+    const directory = path.join(uploadDir, "snapshots/controller-outages");
+    const broken = JSON.parse(await readFile(path.join(directory, "controller-outage-a-broken.json"), "utf8"));
+    expect(broken).toMatchObject({ error: "invalid_json", source: "controller-outage-a-broken.json" });
+    expect(validControllerOutageReceipt(broken)).toBe(false);
+    const raw = await readFile(path.join(directory, "controller-outage-a-broken.json.invalid.txt"), "utf8");
+    expect(raw).not.toContain(secret); expect(raw).toContain("[REDACTED]");
+    expect(JSON.parse(await readFile(path.join(directory, "controller-outage-z-good.json"), "utf8"))).toMatchObject({ requestId: "good" });
+    expect(await readFile(path.join(uploadDir, "server.log"), "utf8")).toBe("original failure retained\n");
+  } finally { await rm(root, { recursive: true, force: true }); }
+});

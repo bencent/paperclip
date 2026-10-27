@@ -1447,3 +1447,22 @@ every master SQL file and journal entry. The five snapshots are 0387–0391.
 Migration checks, server typecheck and all 13 warm-admission/configuration
 variants pass after integration. Current-head CI and review remain required;
 prior source checks are not carried forward as a new-head pass.
+
+
+### Per-replacement identity and malformed receipt retention
+
+The last qualification review reproduces two gaps. An intermediate rollback
+step could cite another runner or native session for the same run ID; only the
+final step checked the full recovery identity. Every step now compares run,
+company, issue, runner and native session against its own pre-fault boundary.
+Negative cases change an intermediate receipt while retaining a valid final
+step, so final success cannot hide the mismatch.
+
+A malformed receipt also threw from the shared collector before evidence could
+be packaged. Parse failures now produce an explicit invalid-receipt JSON record
+with byte count and digest plus sanitized diagnostic text. The parser's message
+is not copied because it can quote private bytes. Other receipts and shared
+logs still package after temporary-root deletion; malformed evidence cannot
+satisfy an outage grade. Two regressions fail before correction (38 other cases
+pass). Afterward all 96 focused qualification cases and E2E typecheck pass.
+These are qualification-evidence fixes, with no deployment or provider turn.
