@@ -1,6 +1,8 @@
 # Connection-grants capability fan-out: design and safety proof
 
-Date: 2026-10-27. Status: design selected; application change not implemented.
+Date: 2026-10-27. This records the selected design before implementation.
+See [implementation verification](2026-10-27-connection-grants-batch-verification.md)
+for measured results and completed acceptance checks.
 
 ## Recommendation
 
