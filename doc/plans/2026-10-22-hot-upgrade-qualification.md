@@ -1330,3 +1330,18 @@ same route test. The failure remains retained; the forthcoming qualification
 correction changes the successor head, so the superseded job is not retried.
 Fresh current-head CI remains mandatory; this is not a transcript assertion pass
 or a waived gate.
+
+The Linux Runner lane at server-head `d1513f8311` executes and passes the
+101-run expired-owner regression (2.803 seconds) and the 63.625-second fresh
+preparation renewal case. It reports 114 passes, one failure and five optional
+skips: the claim-lock variant fails during setup because the parameterized cases
+reuse a uniquely indexed environment name. Correction `227dc068a8` gives each
+case its own environment and provider-lease identity. This is a fixture repair,
+not a retry of the failed head. Actual claim-lock execution and fresh full CI
+remain required; the overall earlier Runner lane was not green.
+
+Transcript shared-stream recovery tests move unchanged into their own focused
+file. The original is 803 lines and the new file 321. The first split leaves one
+helper behind and fails one of 39 cases plus typechecking; restoring that fixture
+helper yields all 39 passes, UI typecheck and clean token gates. These are hook
+fixtures; they do not establish hosted viewer performance.
