@@ -1439,3 +1439,11 @@ normalized session fails before any restored directory is created. Require
 current Linux CI execution before merge. No new streaming writes or idle SQL
 are added; reconstruction is limited to warm admission with an external marker
 or an older local projection.
+
+
+Master `e9e84bb8a1` then adds migration 0390. The fifth reconciliation generates
+checkpoint migration 0391 with the identical prior idempotent DDL, preserving
+every master SQL file and journal entry. The five snapshots are 0387–0391.
+Migration checks, server typecheck and all 13 warm-admission/configuration
+variants pass after integration. Current-head CI and review remain required;
+prior source checks are not carried forward as a new-head pass.
