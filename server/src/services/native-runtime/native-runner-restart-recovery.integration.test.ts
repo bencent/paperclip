@@ -1062,10 +1062,10 @@ describeEmbeddedPostgres("native runner restart recovery with real processes", (
   it.each(["preparation", "claim lock"])("gives a fresh remote claim its full lease through blocked %s", async (blockedPhase) => {
     const fixture = await seedRun(`FRESH-SLOW-${blockedPhase === "claim lock" ? "CLAIM-LOCK" : "PREPARATION"}`);
     const environmentId = randomUUID(), leaseId = randomUUID();
-    await fixture.db.insert(environments).values({ id: environmentId, name: "Fresh preparation fixture", driver: "sandbox" });
+    await fixture.db.insert(environments).values({ id: environmentId, name: `Fresh preparation fixture ${environmentId}`, driver: "sandbox" });
     await fixture.db.insert(environmentLeases).values({ id: leaseId, companyId, environmentId,
       heartbeatRunId: fixture.runId, issueId: fixture.issueId, status: "active",
-      provider: "fixture", providerLeaseId: "fresh-preparation-fixture" });
+      provider: "fixture", providerLeaseId: `fresh-preparation-${leaseId}` });
     const execution = buildNativeExecutionInput({ companyId, agentId, runId: fixture.runId,
       issue: { id: fixture.issueId, identifier: "NRR-FRESH-SLOW", title: "Prepare slowly", description: null, workMode: "standard" },
       taskPrompt: "Prepare a fresh execution.", provider: "codex",
