@@ -170,6 +170,7 @@ Gaps: This individual operation has source review but no recorded HTTP verificat
 API: `present` — `POST /api/chat-endpoints/{endpointId}/github/people/lookup`; JSON REST.
 Agent access: `available` — agent REST and default native `search_api` / `call_api`.
 Policy: `tools:manage_connections`; [shared management policy](../../doc/plans/2026-10-13-connection-api-parity.md#authorization-contract). Resolved resources and every affected target are checked; personal ownership remains the responsible user.
+Provider identity: the requested endpoint's active GitHub App installation issues a metadata-only token. The lookup does not use a personal grant or fall back to anonymous access. Inactive connections and unverified installation IDs are rejected. [Service regressions](../../server/src/services/chat-github-management.test.ts) cover authentication and sanitized lookup failures with provider fixtures; they do not prove the live HTTP journey.
 Evidence: `source-only` — [route](../../server/src/routes/chat-channels.ts); reviewed in the working tree based on the source commit above.
 Verification: `not-run` — individual operation not executed in this audit; shared authorization and representative family flows are exercised by the authenticated integration suite. Follow the route schema, inspect persistence/audit, and assert owner, scope and revoked-authority denial.
 Gaps: This individual operation has source review but no recorded HTTP verification. Provider availability and live setup remain unqualified.
@@ -1018,3 +1019,10 @@ comment, session generation, and admitted instruction snapshot. A separate retry
 receipt preserves the original skipped receipt and older failed native result.
 Current access and normal native stop/cleanup guards still govern execution;
 board wake metadata alone cannot manufacture chat authority or replay old work.
+
+Deferred chat Retry excludes independent board queues from its pinned batch.
+An explicit board Retry can restore a historical mixed batch only with exact
+never-started evidence, current source authority, unchanged board comments and
+no prior delivery or allocation. The server records the restoration in activity;
+failed runs and original skipped receipts remain history. This grants no new
+agent retry capability and does not weaken execution-time source validation.
