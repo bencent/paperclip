@@ -1,5 +1,5 @@
 {
-  "id": "cac3ba9f-b0b9-49fb-9bc5-ea0ddcf22dff",
+  "id": "4f21a636-735f-4dce-9ab8-0583f3bc7b79",
   "prevId": "de27fdf8-430a-443a-9502-725f92c48892",
   "version": "7",
   "dialect": "postgresql",
@@ -24058,6 +24058,22 @@
           "method": "btree",
           "with": {}
         },
+        "decisions_pending_continuation_idx": {
+          "name": "decisions_pending_continuation_idx",
+          "columns": [
+            {
+              "expression": "id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "where": "\"decisions\".\"continuation_policy\" = 'wake_origin_agent' AND \"decisions\".\"metadata\" ->> 'continuationPending' = 'true' AND (\"decisions\".\"status\" IN ('expired', 'cancelled') OR (\"decisions\".\"status\" = 'decided' AND \"decisions\".\"execution_status\" IN ('succeeded', 'partial', 'failed')))",
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
         "decisions_bundle_idx": {
           "name": "decisions_bundle_idx",
           "columns": [
@@ -42857,99 +42873,6 @@
           ]
         }
       },
-      "policies": {},
-      "checkConstraints": {},
-      "isRLSEnabled": false
-    },
-    "public.native_runner_checkpoints": {
-      "name": "native_runner_checkpoints",
-      "schema": "",
-      "columns": {
-        "company_id": {
-          "name": "company_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "run_id": {
-          "name": "run_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "issue_id": {
-          "name": "issue_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "part": {
-          "name": "part",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "material": {
-          "name": "material",
-          "type": "jsonb",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "updated_at": {
-          "name": "updated_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "now()"
-        }
-      },
-      "indexes": {
-        "native_runner_checkpoints_headers_idx": {
-          "name": "native_runner_checkpoints_headers_idx",
-          "columns": [
-            {
-              "expression": "run_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "where": "\"native_runner_checkpoints\".\"part\" = 'header'",
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        }
-      },
-      "foreignKeys": {
-        "native_runner_checkpoints_company_id_issue_id_run_id_heartbeat_runs_company_id_native_issue_id_id_fk": {
-          "name": "native_runner_checkpoints_company_id_issue_id_run_id_heartbeat_runs_company_id_native_issue_id_id_fk",
-          "tableFrom": "native_runner_checkpoints",
-          "tableTo": "heartbeat_runs",
-          "columnsFrom": [
-            "company_id",
-            "issue_id",
-            "run_id"
-          ],
-          "columnsTo": [
-            "company_id",
-            "native_issue_id",
-            "id"
-          ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
-        }
-      },
-      "compositePrimaryKeys": {
-        "native_runner_checkpoints_run_id_part_pk": {
-          "name": "native_runner_checkpoints_run_id_part_pk",
-          "columns": [
-            "run_id",
-            "part"
-          ]
-        }
-      },
-      "uniqueConstraints": {},
       "policies": {},
       "checkConstraints": {},
       "isRLSEnabled": false
