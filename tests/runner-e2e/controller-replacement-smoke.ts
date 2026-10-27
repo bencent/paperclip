@@ -12,7 +12,7 @@ import path from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 import { createDb, startEmbeddedPostgresTestDatabase } from "../../packages/db/src/index.js";
 import { paperclipConfigSchema } from "../../packages/shared/src/config-schema.js";
-import { configuredControllerOutage, validControllerOutageReceipt } from "./controller-outage.js";
+import { configuredControllerOutage, validControllerOutageReceipt, type ControllerOutage } from "./controller-outage.js";
 import { runnerE2EServerControlPaths } from "./harness-env.js";
 import { reserveRunnerE2EServerPort } from "./ports.js";
 import { createRunnerE2ETemporaryRoot, prepareRunnerE2EServerConfig } from "./server-config.js";
@@ -20,8 +20,8 @@ import { createRunnerE2EServerStopper } from "./server-stop.js";
 import { cleanupControllerSmokeDatabase } from "./controller-smoke-cleanup.js";
 import { runnerE2ETypeScriptProcessArgs } from "./web-server-command.js";
 
-const outage = configuredControllerOutage(process.env);
-const upgrades = await readUpgradeArtifacts(process.env[upgradeArtifactKey]);
+let outage: ControllerOutage;
+let upgrades: Awaited<ReturnType<typeof readUpgradeArtifacts>> = null;
 const repositoryRoot = path.resolve(import.meta.dirname, "../..");
 const temporaryRoot = await createRunnerE2ETemporaryRoot();
 const home = path.join(temporaryRoot, "home");
@@ -30,9 +30,7 @@ const control = runnerE2EServerControlPaths(temporaryRoot);
 const reportPath = path.join(temporaryRoot, "replacement-evidence.json");
 console.info(JSON.stringify({ started: true, evidence: reportPath }));
 const report: Record<string, unknown> = { schema: "paperclip.e2e.controller-replacement-smoke/v1",
-  sourceRevision: execFileSync("git", ["rev-parse", "HEAD"], { cwd: repositoryRoot, encoding: "utf8" }).trim(),
-  sourceDirty: execFileSync("git", ["status", "--porcelain"], { cwd: repositoryRoot, encoding: "utf8" }).trim().length > 0,
-  outage, providerTurns: 0, activeAgentContinuityQualified: false, cleanupConfirmed: false,
+  providerTurns: 0, activeAgentContinuityQualified: false, cleanupConfirmed: false,
   databaseCreated: false, wrapperStarted: false };
 // Register resources only after creation so setup failures still have evidence
 // and cleanup never assumes a database or client exists.
@@ -46,6 +44,11 @@ let failure: unknown;
 let ownedPostgresProcessId: number | null | undefined = process.env.PAPERCLIP_TEST_DATABASE_URL ? null : undefined;
 report.databaseCleanupScope = ownedPostgresProcessId === null ? "owned_database" : "owned_cluster_process";
 try {
+  report.sourceRevision = execFileSync("git", ["rev-parse", "HEAD"], { cwd: repositoryRoot, encoding: "utf8" }).trim();
+  report.sourceDirty = execFileSync("git", ["status", "--porcelain"], { cwd: repositoryRoot, encoding: "utf8" }).trim().length > 0;
+  outage = configuredControllerOutage(process.env);
+  report.outage = outage;
+  upgrades = await readUpgradeArtifacts(process.env[upgradeArtifactKey]);
   const port = await reserveRunnerE2EServerPort();
   // The database belongs to this driver, never to either server process tree.
   const external = process.env.PAPERCLIP_TEST_DATABASE_URL;
@@ -131,7 +134,10 @@ try {
       if (value?.requestId === requestId && value.status === "failed") throw new Error(String(value.message));
       return value;
     }, value => value?.requestId === requestId && value.status === "ready", outage.holdMs + 180_000);
-    assert(validControllerOutageReceipt(ack!.controllerOutage, outage, requestId));
+    assert(validControllerOutageReceipt(ack!.controllerOutage, outage, requestId, upgrades ? {
+      previous: upgrades.artifacts[upgrades.sequence[index - 1]!],
+      replacement: upgrades.artifacts[upgrades.sequence[index]!],
+    } : undefined), "Invalid replacement fault or requested artifact receipt");
     receipts.push(ack!.controllerOutage);
     report.replacements = receipts;
     await writeFile(reportPath, `${JSON.stringify(report, null, 2)}\n`, { mode: 0o600 });

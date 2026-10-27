@@ -1,5 +1,8 @@
+import { mkdtemp, mkdir, writeFile, readFile, rm, lstat } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
-import { configuredControllerOutage, controllerOutageForExecution, parseControllerOutage, replaceController, validControllerOutageReceipt } from "./controller-outage.js";
+import { configuredControllerOutage, controllerOutageForExecution, parseControllerOutage, replaceController, retireControllerCache, validControllerOutageReceipt } from "./controller-outage.js";
 import { parseRunnerSelectors, selectRunnerExecutions } from "./selectors.js";
 
 function fixture() {
@@ -98,3 +101,41 @@ describe("controller outage qualification", () => {
       stoppedAfterMs: 0, cacheDiscarded: true, replacementStartedAfterMs: 300000, readyAfterMs: 420000 })).toBe(false);
   });
 });
+
+it.each(["absent", "present"])("retires a %s old controller cache", async state => {
+  const root = await mkdtemp(join(tmpdir(), "controller-cache-"));
+  const cache = join(root, "cache"), retired = join(root, "retired");
+  try {
+    if (state === "present") { await mkdir(cache); await writeFile(join(cache, "evidence"), "saved"); }
+    await retireControllerCache(cache, retired);
+    await expect(lstat(cache)).rejects.toMatchObject({ code: "ENOENT" });
+    if (state === "present") expect(await readFile(join(retired, "evidence"), "utf8")).toBe("saved");
+  } finally { await rm(root, { recursive: true, force: true }); }
+});
+it("does not mistake a missing retirement parent for an already absent cache", async () => {
+  const root = await mkdtemp(join(tmpdir(), "controller-cache-")), cache = join(root, "cache");
+  try {
+    await mkdir(cache); await writeFile(join(cache, "evidence"), "saved");
+    await expect(retireControllerCache(cache, join(root, "missing", "retired"))).rejects.toMatchObject({ code: "ENOENT" });
+    expect(await readFile(join(cache, "evidence"), "utf8")).toBe("saved");
+  } finally { await rm(root, { recursive: true, force: true }); }
+});
+it.each(["missing", "previous-revision", "previous-tree", "replacement-revision", "replacement-tree", "reversed"])(
+  "requires the requested upgrade artifact pair when evidence is %s", problem => {
+    const A = { revision: "a".repeat(40), treeSha256: "a".repeat(64), version: "1", evidence: "development-build" as const };
+    const B = { ...A, revision: "b".repeat(40), treeSha256: "b".repeat(64) };
+    const receipt = { schema: "paperclip.e2e.controller-outage/v1", requestId: "upgrade", previousPid: 1, replacementPid: 2,
+      startedAt: new Date().toISOString(), signal: "SIGKILL", holdMs: 0, stoppedAfterMs: 0,
+      replacementStartedAfterMs: 1, readyAfterMs: 2, cacheDiscarded: true,
+      previousArtifact: { ...A }, replacementArtifact: { ...B } };
+    expect(validControllerOutageReceipt(receipt, undefined, "upgrade", { previous: A, replacement: B })).toBe(true);
+    expect(validControllerOutageReceipt({ ...receipt, previousArtifact: B, replacementArtifact: A }, undefined,
+      "upgrade", { previous: B, replacement: A })).toBe(true);
+    if (problem === "missing") Object.assign(receipt, { previousArtifact: undefined, replacementArtifact: undefined });
+    if (problem === "previous-revision") receipt.previousArtifact.revision = "c".repeat(40);
+    if (problem === "previous-tree") receipt.previousArtifact.treeSha256 = "c".repeat(64);
+    if (problem === "replacement-revision") receipt.replacementArtifact.revision = "c".repeat(40);
+    if (problem === "replacement-tree") receipt.replacementArtifact.treeSha256 = "c".repeat(64);
+    if (problem === "reversed") Object.assign(receipt, { previousArtifact: B, replacementArtifact: A });
+    expect(validControllerOutageReceipt(receipt, undefined, "upgrade", { previous: A, replacement: B })).toBe(false);
+  });

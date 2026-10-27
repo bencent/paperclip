@@ -96,6 +96,10 @@ export async function readControllerRecoverySnapshot(db: Db, binding: RecoveryBi
       from heartbeat_runs r join native_run_finalizations f on f.run_id = r.id and f.company_id = r.company_id
       where r.id = ${binding.runId} and r.company_id = ${binding.companyId} and r.native_issue_id = ${binding.issueId}`);
     if (!row?.runnerInstanceId || !row.nativeSessionId || !row.bootId) throw new Error("Recovery binding has no admitted native owner");
+    if (!Array.isArray(row.history) || row.history.some(entry => entry === null
+      || typeof entry !== "object" || Array.isArray(entry))) {
+      throw new Error("Recovery history must be an array of records");
+    }
     // Use the existing server loader and Runner's public diagnostic projection.
     // The qualification code never reads encrypted material or private formats.
     const checkpoint = await loadNativeRunnerCheckpoint(tx as unknown as Db, binding);

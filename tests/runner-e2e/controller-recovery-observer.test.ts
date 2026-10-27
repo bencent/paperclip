@@ -1,5 +1,6 @@
+import type { Db } from "../../packages/db/src/client.js";
 import { describe, expect, it } from "vitest";
-import { parseRecoveryBinding, recoveryObservation, validControllerRecoveryReceipt, type RecoverySnapshot } from "./controller-recovery-observer.js";
+import { parseRecoveryBinding, readControllerRecoverySnapshot, recoveryObservation, validControllerRecoveryReceipt, type RecoverySnapshot } from "./controller-recovery-observer.js";
 import type { ControllerOutageReceipt } from "./controller-outage.js";
 
 const binding = { companyId: "10000000-0000-0000-0000-000000000001", issueId: "10000000-0000-0000-0000-000000000002", runId: "10000000-0000-0000-0000-000000000003" };
@@ -37,4 +38,9 @@ describe("read-only controller recovery evidence", () => {
     expect(parseRecoveryBinding(binding)).toEqual(binding);
     for (const invalid of [null, {}, { ...binding, runId: "other" }, { ...binding, extra: true }]) expect(() => parseRecoveryBinding(invalid)).toThrow();
   });
+});
+
+it.each([null, {}, "not-history", [null], [42]])("rejects malformed database recovery history %j before reading checkpoints", async history => {
+  const db = { transaction: async (work: (tx: unknown) => Promise<unknown>) => work({ execute: async () => [{ ...before, history }] }) } as unknown as Db;
+  await expect(readControllerRecoverySnapshot(db, binding)).rejects.toThrow("Recovery history must be an array of records");
 });
