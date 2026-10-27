@@ -964,6 +964,12 @@ it("keeps dependency resolution and shared caches out of Runner protocol archive
   }
   const builder = jobs.find(job => job.startsWith("  build_controller:"))!;
   expect(builder).not.toMatch(/id-token: write|environment:|secrets\./u);
+  const upload = builder.split("      - name: Retain the trusted controller code for every worker\n")[1]!.split("\n      - ")[0]!;
+  expect(upload).toContain("include-hidden-files: true");
+  expect(upload).toContain("id: upload");
+  expect(builder).toContain("artifact-ids: ${{ steps.upload.outputs.artifact-id }}");
+  expect(builder).toContain("run: node --test .github/tests/runner-controller-artifact-transport.test.mjs");
+  expect(builder).toContain("PAPERCLIP_CONTROLLER_RECEIPT_SHA256: ${{ steps.build.outputs.runtime_receipt_sha256 }}");
   const preparer = jobs.find(job => job.startsWith("  prepare_controller:"))!;
   expect(preparer).not.toMatch(/pnpm install/u);
   expect(preparer.indexOf("verify-runtime.mjs")).toBeLessThan(preparer.indexOf('hosted.mjs" prepare'));
