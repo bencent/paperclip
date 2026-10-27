@@ -114,6 +114,18 @@ and handler installation; the external driver waits for session opening.
 An ordinary tool with no outcome lookup remains held. Reconciliation does not
 turn a missing lookup into permission to repeat that tool.
 
+Transport readers use a committed view when external persistence is enabled.
+Lifecycle and result events, command outcomes and warm-handoff authority become
+visible only after the checkpoint callback succeeds. A failed write leaves the
+previous view in place until a successful retry. Internal admission still sees
+staged intents so overlapping recovery cannot duplicate them. Command results
+flush their checkpoint even when no next command is waiting.
+
+Streamed output continues without checkpoint writes. The view stops before a
+pending control event to preserve event order, reuses immutable event records
+and unchanged decoded commands, and caches the visible projection between
+changes. It neither copies a second transcript nor adds an idle scan.
+
 A rejected persistence callback closes the current connection and keeps the last
 successful revision. A later flush or reconnect retries from a complete checkpoint,
 including when the failed response hid a successful commit. Queued writes also

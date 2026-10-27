@@ -531,8 +531,9 @@ it.each([false, true])("dispatches a fresh semantic input once when recovery ove
   const dispatch = vi.fn(async () => { await dispatchBarrier; return { result: "original live outcome" }; });
   const core = new DurablePrpControlPlane({ stateDirectory: root, identity, expectedRunnerVersion,
     expectedRunnerDigest, onSemanticToolInput: dispatch, recoverSemanticToolInput: recover });
+  let writeHeld = false;
   core.setCheckpointPersistence(async saved => {
-    if (JSON.parse(saved.records.get("cursor")!).ackedSourceSeq > 0) await writeBarrier;
+    if (JSON.parse(saved.records.get("cursor")!).ackedSourceSeq > 0) { writeHeld = true; await writeBarrier; }
   });
   const pending: Promise<void>[] = [];
   let client: Awaited<ReturnType<typeof authenticate>>;
@@ -540,7 +541,8 @@ it.each([false, true])("dispatches a fresh semantic input once when recovery ove
     await core.start();
     client = (await authenticate(core, core.issueBootstrapTicket()))!;
     sendSecure(client, semanticInputEvent());
-    await vi.waitFor(() => expect(core.store.state.committedEvents).toHaveLength(1));
+    await vi.waitFor(() => expect(writeHeld).toBe(true));
+    expect(core.store.state.committedEvents).toHaveLength(0);
     pending.push(core.recoverPendingSemanticInputs());
     await new Promise<void>(resolveTurn => setImmediate(resolveTurn));
     expect(dispatch).not.toHaveBeenCalled(); // The durability barrier still applies.
@@ -565,6 +567,90 @@ it.each([false, true])("dispatches a fresh semantic input once when recovery ove
     rmSync(root, { recursive: true, force: true });
   }
 });
+it.each(["turn.completed", "run.result.proposed", "tool.execution.progressed", "command_result"] as const)(
+  "publishes %s to transport readers only after its external checkpoint commits", async mode => {
+    for (const rejectWrite of [false, true]) {
+      const root = mkdtempSync(resolve(tmpdir(), "runner-published-checkpoint-"));
+      const core = new DurablePrpControlPlane({ stateDirectory: root, identity, expectedRunnerVersion, expectedRunnerDigest });
+      let release!: () => void;
+      const gate = new Promise<void>(resolveGate => { release = resolveGate; });
+      let entered = false;
+      let hold = false;
+      let lastSaved!: DurablePrpCheckpoint;
+      core.setCheckpointPersistence(async checkpoint => {
+        if (hold) {
+          entered = true;
+          await gate;
+          if (rejectWrite) throw new Error("controlled checkpoint rejection");
+        }
+        lastSaved = checkpoint;
+      });
+      let client: AuthenticatedClient | null = null;
+      let pump: ReturnType<typeof setInterval> | undefined;
+      let polls = 0;
+      const observed = vi.fn();
+      try {
+        await core.start();
+        client = (await authenticate(core, core.issueBootstrapTicket()))!;
+        core.queueCommand("session.snapshot", {}, "publication-command", true);
+        expect(await receiveSecure(client)).toMatchObject({ kind: "command" });
+        await core.flushCheckpoint();
+        hold = true;
+        pump = setInterval(() => {
+          polls++;
+          const visible = mode === "command_result"
+            ? core.getCommand("publication-command")?.status === "completed"
+              || core.store.state.commands.some(command => command.commandId === "publication-command" && command.status === "completed")
+            : core.store.state.committedEvents.some(event => event.eventType === mode);
+          if (visible && observed.mock.calls.length === 0) observed();
+        }, 5);
+        if (mode === "command_result") {
+          sendSecure(client, { protocol: "paperclip.runner", version: 1, kind: "command_result",
+            payload: { commandId: "publication-command", commandType: "session.snapshot", controllerSeq: 1,
+              status: "completed", result: { snapshot: true } } });
+        } else {
+          const event = semanticInputEvent();
+          const payload = event.payload as Record<string, unknown>;
+          payload.eventType = mode;
+          payload.priority = mode === "tool.execution.progressed" ? 1 : 0;
+          payload.payload = mode === "run.result.proposed" ? {
+            schema: "paperclip.run_result.v1", reportedWorkDisposition: "done", summary: "complete",
+            completionClaim: { contractRevision: "test-v1", objectiveSatisfied: true, criteria: [], remainingWork: [] },
+            evidence: [], verification: [], attentionRequests: [], artifacts: [],
+          } : mode === "tool.execution.progressed" ? {
+            schema: "paperclip.tool.execution.v1", executionId: "publication-progress", transport: "process", operation: "execute",
+            status: "running", output: "working", outputBytes: 7, outputTruncated: false, outputDigest: null,
+          } : { status: "completed" };
+          expect(validatePrpEvent(payload)).toMatchObject({ ok: true });
+          sendSecure(client, event);
+        }
+        await vi.waitFor(() => expect(entered).toBe(true));
+        await vi.waitFor(() => expect(polls).toBeGreaterThan(2));
+        expect(observed).not.toHaveBeenCalled();
+        release();
+        if (rejectWrite) {
+          await expect(core.flushCheckpoint()).rejects.toThrow("controlled checkpoint rejection");
+          expect(observed).not.toHaveBeenCalled();
+          hold = false;
+          await core.flushCheckpoint();
+        } else await core.flushCheckpoint();
+        await vi.waitFor(() => expect(observed).toHaveBeenCalledOnce());
+        if (mode === "command_result") {
+          expect(JSON.parse(lastSaved.records.get("command:1")!).status).toBe("completed");
+        } else expect(lastSaved.records.has("event:1")).toBe(true);
+      } finally {
+        hold = false;
+        release();
+        if (pump) clearInterval(pump);
+        client?.socket.destroy();
+        await core.stop();
+        await core.drainPendingConnectionProcessing();
+        rmSync(root, { recursive: true, force: true });
+      }
+    }
+  },
+);
+
 it.each(["event", "progress", "lifecycle", "lifecycle_priority_one", "usage", "credentials", "newer_command", "command_burst", "command_failure", "authority_conflict", "replacement", "write_failure", "usage_write_failure", "drain", "usage_drain", "semantic_replacement"] as const)(
   "keeps HTTP responsive during a durable event write and preserves %s", async (mode) => {
     if (mode === "command_failure" && process.platform === "win32") return;
