@@ -1,7 +1,8 @@
 import { cp, mkdir, readFile, readdir, writeFile } from "node:fs/promises";
 import path from "node:path";
+import { createHash } from "node:crypto";
 import { runnerE2EServerControlPaths } from "./harness-env.js";
-import { sanitizeJson } from "./redaction.js";
+import { redactText, sanitizeJson } from "./redaction.js";
 
 export async function copySharedEvidence(privateRoot: string, casePrivateDir: string,
   temporaryRoot: string, secrets: readonly string[]) {
@@ -30,9 +31,17 @@ export async function copySharedEvidence(privateRoot: string, casePrivateDir: st
   });
   for (const entry of entries) {
     if (!entry.isFile() || !/^controller-outage-[A-Za-z0-9._:-]{1,200}\.json$/.test(entry.name)) continue;
-    const receipt = JSON.parse(await readFile(path.join(controlDirectory, entry.name), "utf8"));
+    const raw = await readFile(path.join(controlDirectory, entry.name), "utf8");
     const snapshots = path.join(casePrivateDir, "snapshots", "controller-outages");
     await mkdir(snapshots, { recursive: true });
+    let receipt: unknown;
+    try { receipt = JSON.parse(raw); }
+    catch {
+      // Never include parser excerpts: they can quote private receipt bytes.
+      receipt = { schema: "paperclip.e2e.controller-outage-parse-error/v1", source: entry.name,
+        error: "invalid_json", byteLength: Buffer.byteLength(raw), sha256: createHash("sha256").update(raw).digest("hex") };
+      await writeFile(path.join(snapshots, `${entry.name}.invalid.txt`), redactText(raw, secrets), { mode: 0o600 });
+    }
     await writeFile(path.join(snapshots, entry.name), `${JSON.stringify(sanitizeJson(receipt, secrets), null, 2)}\n`, { mode: 0o600 });
   }
 }

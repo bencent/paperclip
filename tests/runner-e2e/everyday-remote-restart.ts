@@ -195,7 +195,11 @@ export function gradeRemoteRestart(evidence: RemoteRestartEvidence | undefined):
         && digest(step.before.lease) === digest(step.after.lease)
         && retainsPrefix(step.before.events, step.after.events);
       const authenticated = validControllerOutageReceipt(step.outage) && validControllerRecoveryReceipt(step.outage)
-        && step.outage.recovery?.binding.runId === step.before.identity.runId;
+        && step.outage.recovery?.binding.runId === step.before.identity.runId
+        && step.outage.recovery.binding.companyId === step.before.identity.companyId
+        && step.outage.recovery.binding.issueId === step.before.identity.issueId
+        && step.outage.recovery.runnerInstanceId === step.before.identity.runnerInstanceId
+        && step.outage.recovery.nativeSessionId === step.before.identity.nativeSessionId;
       const artifactsPresent = expectedReplacements <= 1 || Boolean(step.outage.previousArtifact && step.outage.replacementArtifact);
       const chained = !previous || (retainsPrefix(previous.after.events, step.before.events)
         && (!step.outage.previousArtifact || Boolean(previous.outage.replacementArtifact

@@ -1523,3 +1523,21 @@ diagnostic retry of the failed current-head server job is authorized and
 requested; the exact timing race is not proven and no assertion is weakened.
 A repeated failure requires investigation, not another retry. This record does
 not mark that gate green before the retry finishes.
+
+### Per-replacement identity and malformed receipt retention
+
+The last qualification review reproduces two gaps. An intermediate rollback
+step could cite another runner or native session for the same run ID; only the
+final step checked the full recovery identity. Every step now compares run,
+company, issue, runner and native session against its own pre-fault boundary.
+Negative cases change an intermediate receipt while retaining a valid final
+step, so final success cannot hide the mismatch.
+
+A malformed receipt also threw from the shared collector before evidence could
+be packaged. Parse failures now produce an explicit invalid-receipt JSON record
+with byte count and digest plus sanitized diagnostic text. The parser's message
+is not copied because it can quote private bytes. Other receipts and shared
+logs still package after temporary-root deletion; malformed evidence cannot
+satisfy an outage grade. Two regressions fail before correction (38 other cases
+pass). Afterward all 96 focused qualification cases and E2E typecheck pass.
+These are qualification-evidence fixes, with no deployment or provider turn.
