@@ -191,3 +191,18 @@ it.each(["resolve", "dispose"])("clears a pending-read deadline on %s without id
     expect(f.frames.filter(frame => frame.type === "heartbeat.run.log")).toHaveLength(ending === "resolve" ? 1 : 0);
   } finally { f.delivery.dispose(); }
 });
+
+it("cannot restart recovery timers when a timed-out read later rejects", async () => {
+  vi.useFakeTimers();
+  let reject!: (error: Error) => void;
+  const f = fixture(vi.fn(() => new Promise<LiveEvent>((_resolve, rejectRead) => { reject = rejectRead; })));
+  try {
+    f.subscribe(["run-1"]); f.delivery.enqueue(event());
+    await vi.advanceTimersByTimeAsync(5_000);
+    expect(f.socket.close).toHaveBeenCalledOnce();
+    reject(new Error("late permission failure")); await settle();
+    expect(vi.getTimerCount()).toBe(0);
+    expect(f.frames.some(frame => frame.type === "live.resync")).toBe(false);
+    expect(f.authorize).toHaveBeenCalledOnce();
+  } finally { f.delivery.dispose(); }
+});

@@ -120,6 +120,7 @@ export function createLiveEventDelivery(input: {
             else resync();
           });
         } catch (error) {
+          if (!isOpen()) continue;
           input.onError(error);
           // A failed authorization/read creates a delivery gap. Never advertise
           // healthy streaming while silently discarding an authorized transcript.

@@ -1458,3 +1458,12 @@ and settling/disposal before expiry; they confirm no timer remains when idle.
 The workload comparison preserves the existing viewer-interest authorization
 call counts. These unit counts do not measure final hosted SQL or CPU savings,
 and do not complete the active-agent/viewer performance matrix.
+
+
+The late-error regression also fails before correction: a rejected read after
+socket disposal could create a new congestion timer. Closed deliveries now
+ignore that rejection before any recovery work starts. The final combined
+delivery/cost/WebSocket/toast batch first has four loopback EPERM failures and
+31 passes; its permitted repeat passes all 35 cases. The prior 28-case result
+excluded the toast file. Both outcomes remain recorded, and no hosted result
+is inferred from these local fault tests.
