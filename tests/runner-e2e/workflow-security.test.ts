@@ -92,7 +92,7 @@ describe("public repository paid workflow security", () => {
         .filter((step) => step.includes("uses: pnpm/action-setup@"));
 
       expect(pnpmSetupSteps, workflowName).toHaveLength(
-        8,
+        workflowName === "pr-trusted.yml" ? 8 : 7,
       );
       for (const step of pnpmSetupSteps) {
         expect(step, workflowName).toContain('NPM_CONFIG_AUDIT: "false"');
@@ -138,7 +138,7 @@ describe("public repository paid workflow security", () => {
       );
 
       expect(pnpmSetupStepIndexes, name).toHaveLength(
-        8,
+        name === "pr-trusted.yml" ? 8 : 7,
       );
       for (const pnpmSetupStepIndex of pnpmSetupStepIndexes) {
         const pnpmSetupStep = steps[pnpmSetupStepIndex]!;
@@ -537,8 +537,8 @@ describe("public repository paid workflow security", () => {
         /ref: \$\{\{ needs\.authorize\.outputs\.target_sha \}\}/g,
       ),
     ).toHaveLength(6);
-    expect(fullStack.match(/ref: \$\{\{ github\.sha \}\}/g)).toHaveLength(3);
-    expect(fullStack.match(/persist-credentials: false/g)).toHaveLength(9);
+    expect(fullStack.match(/ref: \$\{\{ github\.sha \}\}/g)).toHaveLength(2);
+    expect(fullStack.match(/persist-credentials: false/g)).toHaveLength(8);
     expect(fullStack).not.toContain("ref: ${{ inputs.target_branch }}");
     expect(fullStack).toContain(
       "PAPERCLIP_RUNNER_SOURCE_REVISION=${TARGET_SHA}",
@@ -553,18 +553,10 @@ describe("public repository paid workflow security", () => {
       "ref: ${{ needs.authorize.outputs.target_sha }}",
     );
     expect(reportJob).not.toContain("Download resolved target lockfile");
-    expect(reportJob).toContain("needs: [authorize, report_lock, catalog, daytona_image, test, test_recurring]");
-    expect(reportJob).toContain("artifact-ids: ${{ needs.report_lock.outputs.artifact_id }}");
-    expect(reportJob).toContain("REPORT_LOCK_SOURCE_SHA: ${{ needs.report_lock.outputs.source_sha }}");
-    expect(reportJob.indexOf("Restore trusted report lockfile")).toBeLessThan(reportJob.indexOf("Install pinned reporting dependencies"));
-    expect(reportJob).toContain('test "$REPORT_LOCK_SOURCE_SHA" = "$GITHUB_SHA"');
-    expect(reportJob).toContain('test "$(git rev-parse HEAD)" = "$GITHUB_SHA"');
-    const reportLockJob = fullStack.split("  report_lock:\n")[1]!.split("  catalog:\n")[0]!;
-    expect(reportLockJob).toContain("ref: ${{ github.sha }}");
-    expect(reportLockJob).not.toContain("needs.authorize.outputs.target_sha");
-    expect(reportLockJob).not.toContain("secrets.");
-    expect(reportLockJob).not.toContain("environment:");
-    expect(reportLockJob).toContain("pnpm install --ignore-scripts --no-frozen-lockfile --lockfile-only");
+    expect(reportJob).toContain("run: node tests/runner-e2e/prepare-report-lock.mjs");
+    expect(reportJob.indexOf("Apply reviewed reporting lock corrections")).toBeLessThan(reportJob.indexOf("Install pinned reporting dependencies"));
+    expect(reportJob).not.toContain("needs.target_lock.outputs");
+
     expect(historyJob).toContain("ref: ${{ github.sha }}");
     expect(historyJob).not.toContain(
       "ref: ${{ needs.authorize.outputs.target_sha }}",

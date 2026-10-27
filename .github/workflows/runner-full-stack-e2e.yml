@@ -242,62 +242,6 @@ jobs:
           retention-days: 30
           if-no-files-found: error
 
-  report_lock:
-    name: Resolve trusted report pnpm lockfile
-    needs: authorize
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    permissions:
-      contents: read
-    outputs:
-      artifact_id: ${{ steps.upload.outputs.artifact-id }}
-      source_sha: ${{ github.sha }}
-      lock_sha256: ${{ steps.lock.outputs.sha256 }}
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
-        with:
-          ref: ${{ github.sha }}
-          persist-credentials: false
-
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
-        with:
-          node-version: 24
-
-      - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6
-        env:
-          NPM_CONFIG_AUDIT: "false"
-          NPM_CONFIG_FUND: "false"
-          NPM_CONFIG_UPDATE_NOTIFIER: "false"
-        with:
-          version: 9.15.4
-
-      - name: Resolve trusted report lockfile without lifecycle scripts
-        id: lock
-        run: |
-          set -euo pipefail
-          pnpm install --ignore-scripts --no-frozen-lockfile --lockfile-only
-          test -s pnpm-lock.yaml
-          unexpected="$(git status --short | awk '$2 != "pnpm-lock.yaml" { print }')"
-          if [ -n "$unexpected" ]; then
-            echo "Lockfile resolution changed files other than pnpm-lock.yaml:" >&2
-            echo "$unexpected" >&2
-            exit 1
-          fi
-          echo "sha256=$(sha256sum pnpm-lock.yaml | cut -d ' ' -f 1)" >> "$GITHUB_OUTPUT"
-
-      - name: Bound scheduled lockfile upload
-        if: github.event_name == 'schedule' || (inputs.cadence != '' && inputs.cadence != 'manual')
-        run: node tests/runner-e2e/artifact-budget.mjs check lock pnpm-lock.yaml
-
-      - name: Upload resolved trusted report lockfile
-        id: upload
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
-        with:
-          name: runner-e2e-report-pnpm-lock-${{ github.run_id }}-${{ github.run_attempt }}
-          path: pnpm-lock.yaml
-          retention-days: 30
-          if-no-files-found: error
-
   catalog:
     name: Validate catalog and select cells
     needs: [authorize, target_lock]
@@ -1299,7 +1243,7 @@ jobs:
   report:
     name: Merge and enforce campaign result
     if: always() && !cancelled() && needs.catalog.result == 'success' && github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
-    needs: [authorize, report_lock, catalog, daytona_image, test, test_recurring]
+    needs: [authorize, catalog, daytona_image, test, test_recurring]
     outputs:
       history_source_ready: ${{ steps.history_source_ready.outputs.ready }}
     runs-on: ubuntu-latest
@@ -1329,28 +1273,8 @@ jobs:
         with:
           version: 9.15.4
 
-      # Resolve report dependencies independently from the worker target.
-      - name: Download trusted report lockfile
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
-        with:
-          artifact-ids: ${{ needs.report_lock.outputs.artifact_id }}
-          path: ${{ runner.temp }}/runner-e2e-report-lock
-
-      - name: Restore trusted report lockfile
-        env:
-          REPORT_LOCK_SOURCE_SHA: ${{ needs.report_lock.outputs.source_sha }}
-          EXPECTED_LOCK_SHA256: ${{ needs.report_lock.outputs.lock_sha256 }}
-        run: |
-          set -euo pipefail
-          test "$REPORT_LOCK_SOURCE_SHA" = "$GITHUB_SHA"
-          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
-          directory="$RUNNER_TEMP/runner-e2e-report-lock"
-          lock="$directory/pnpm-lock.yaml"
-          test -f "$lock" && test ! -L "$lock"
-          test "$(find "$directory" -mindepth 1 | wc -l | tr -d ' ')" = 1
-          test "$(sha256sum "$lock" | cut -d ' ' -f 1)" = "$EXPECTED_LOCK_SHA256"
-          cp "$lock" pnpm-lock.yaml
-          test "$(sha256sum pnpm-lock.yaml | cut -d ' ' -f 1)" = "$EXPECTED_LOCK_SHA256"
+      - name: Apply reviewed reporting lock corrections
+        run: node tests/runner-e2e/prepare-report-lock.mjs
 
       - name: Install pinned reporting dependencies
         run: pnpm install --frozen-lockfile --ignore-scripts --store-dir "${{ runner.temp }}/eval-report-store"

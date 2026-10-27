@@ -913,8 +913,10 @@ product, cleanup, feedback and trace checks still fail qualification.
 
 ### Hosted report dependencies
 
-The trusted report job keeps a frozen dependency install. Its separate,
-credential-free lock job always resolves the trusted workflow revision,
-including campaigns that test a different manual target. The report downloads
-that lock by artifact ID and verifies its source, file shape and SHA-256 first.
-The worker target cannot choose dependencies for the privileged report process.
+The trusted report job applies a reviewed `report-lock.patch` before its frozen
+install. `report-lock.json` pins the input lock, patch and resulting lock hashes.
+This updates existing patch identities and the already declared yaml dependency
+without registry resolution. The worker target and its lock artifact never
+control report dependencies. An unknown committed lock fails before install;
+update and review this correction when dependency inputs change. The original
+failed run remains failed when retained evidence gets a new presentation.

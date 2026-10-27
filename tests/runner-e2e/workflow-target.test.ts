@@ -1,7 +1,6 @@
 import { spawnSync } from "node:child_process";
-import { mkdtemp, readFile, rm, mkdir, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, rm } from "node:fs/promises";
 import os from "node:os";
-import { createHash } from "node:crypto";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 
@@ -47,32 +46,4 @@ describe("paid workflow target authorization", () => {
     expect(result.output).toContain(`sha=${advancedSha}\n`);
     expect(result.output).toContain("ref=refs/heads/development\n");
   });
-});
-
-
-describe("trusted reporting lock restoration", () => {
-  it.each(["valid", "foreign-source", "wrong-checkout", "tampered-lock", "extra-file"])(
-    "restores only the pinned trusted source and exact artifact: %s", async (variant) => {
-      const workflow = await readFile(new URL("../../.github/workflows/runner-full-stack-e2e.yml", import.meta.url), "utf8");
-      const step = workflow.split("      - name: Restore trusted report lockfile\n")[1]!.split("\n      - ")[0]!;
-      const script = step.split("        run: |\n")[1]!.replace(/^ {10}/gm, "");
-      const directory = await mkdtemp(path.join(os.tmpdir(), "eval-report-lock-"));
-      try {
-        const lockDirectory = path.join(directory, "runner-e2e-report-lock");
-        await mkdir(lockDirectory);
-        const content = "lockfileVersion: '9.0'\n";
-        await writeFile(path.join(directory, "pnpm-lock.yaml"), "original\n");
-        await writeFile(path.join(lockDirectory, "pnpm-lock.yaml"), variant === "tampered-lock" ? "modified\n" : content);
-        if (variant === "extra-file") await writeFile(path.join(lockDirectory, "unexpected"), "extra");
-        const result = spawnSync("bash", ["-c", `git() { printf '%s\\n' "$MOCK_CHECKOUT_SHA"; }\n${script}`], {
-          cwd: directory, encoding: "utf8", env: { ...process.env, RUNNER_TEMP: directory,
-            GITHUB_SHA: queuedSha, REPORT_LOCK_SOURCE_SHA: variant === "foreign-source" ? advancedSha : queuedSha,
-            MOCK_CHECKOUT_SHA: variant === "wrong-checkout" ? advancedSha : queuedSha,
-            EXPECTED_LOCK_SHA256: createHash("sha256").update(content).digest("hex") },
-        });
-        expect(result.status, result.stderr).toBe(variant === "valid" ? 0 : 1);
-        expect(await readFile(path.join(directory, "pnpm-lock.yaml"), "utf8")).toBe(variant === "valid" ? content : "original\n");
-      } finally { await rm(directory, { recursive: true, force: true }); }
-    },
-  );
 });
