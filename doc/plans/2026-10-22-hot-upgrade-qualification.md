@@ -1228,3 +1228,30 @@ migration is regenerated as 0385 after master's newer migrations and retains
 preview idempotence. Fresh CI and review are required for the updated heads.
 These code checks do not close the remaining different-artifact, hosted rollout,
 additional-harness or complete active-agent/viewer qualification gates.
+
+Fresh review reproduces a public-reader race during external checkpoint writes.
+Lifecycle events, result proposals, progress and command outcomes are visible to
+transport polling before their write succeeds. Four new reader cases fail before
+the correction; all held/rejected-write variants pass afterward. The controller
+now publishes committed metadata and command outcomes, retains immutable event
+references and reuses unchanged command decoding. Streaming remains independent
+of checkpoint writes, and the last command result flushes without waiting for a
+next command. The first combined repeat passes 556 cases and fails two overlap
+fixtures that wait for the old provisional public view. Those fixtures now wait
+for entry into the persistence callback and require the public event view to stay
+empty. The full controller repeat then passes all 168 cases. The other four
+combined files pass 390 cases. Runner TypeScript build and typecheck pass.
+
+Fresh qualification review also reproduces three rejected supervisor requests:
+the Claude everyday cell and both dedicated continuity cells are selected by the
+shared outage policy but rejected by a stale Codex-only guard. The existing file
+reader is extracted as the supervisor's request boundary and uses that same
+policy. Real request-file tests cover all four supported cells, unsupported cells
+and conflicting fault requests. All 93 request/outage/continuity/process-owner
+cases and runner E2E typecheck pass. This verifies the supervisor request path,
+not a hosted Claude upgrade.
+
+The first master-reconciled CI attempt loses seven runner services together at
+21:40:37 UTC. Their retained logs report shutdown and cancellation without test
+assertion failures. The subsequent source corrections require fresh CI; no
+successful run is inferred from the interrupted attempt or an older head.

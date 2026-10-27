@@ -1,9 +1,9 @@
+import { readRestartRequest, type RestartRequest } from "./server-restart-request.js";
 import { prepareControllerDatabase } from "./controller-database.js";
 import { readUpgradeArtifacts, verifyUpgradeArtifact, assertServingArtifact, upgradeArtifactKey, type ServingArtifact } from "./upgrade-artifacts.js";
-import { createControllerRecoveryObserver, parseRecoveryBinding, type RecoveryBinding } from "./controller-recovery-observer.js";
-import { parseFinalizationCrashBinding, readFinalizationCrashBoundary, type FinalizationCrashBinding } from "./finalization-crash-boundary.js";
-import { parseControllerOutage, replaceController, type ControllerOutage, type ControllerOutageReceipt } from "./controller-outage.js";
-import { parseRestartRunnerIdentity, type RestartRunnerIdentity } from "./process-tree-owner.js";
+import { createControllerRecoveryObserver } from "./controller-recovery-observer.js";
+import { readFinalizationCrashBoundary } from "./finalization-crash-boundary.js";
+import { replaceController, type ControllerOutageReceipt } from "./controller-outage.js";
 import { recoverInterruptedFeedback } from "./feedback-recovery.js";
 import { normalizedSecrets } from "./redaction.js";
 import { CREDENTIAL_NAMES } from "./types.js";
@@ -316,68 +316,6 @@ async function waitForHealthToStop() {
   );
 }
 
-interface RestartRequest {
-  requestId: string;
-  controllerDowntimeMs?: number;
-  preserveRunner?: RestartRunnerIdentity;
-  discardControllerCache?: boolean;
-  crashAfterResult?: FinalizationCrashBinding;
-  controllerOutage?: ControllerOutage;
-  recoveryBinding?: RecoveryBinding;
-}
-
-async function readRestartRequest(): Promise<RestartRequest | null> {
-  let encoded: string;
-  try {
-    encoded = await readFile(restartRequestPath, "utf8");
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === "ENOENT") return null;
-    throw error;
-  }
-  let value: unknown;
-  try {
-    value = JSON.parse(encoded);
-  } catch {
-    // The writer may not have completed its atomic replacement yet.
-    return null;
-  }
-  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
-  const requestId = (value as { requestId?: unknown }).requestId;
-  if (
-    typeof requestId !== "string" ||
-    !/^[A-Za-z0-9._:-]{1,200}$/.test(requestId)
-  ) {
-    return null;
-  }
-  const preserveRunner = (value as { preserveRunner?: unknown }).preserveRunner;
-  const controllerDowntimeMs = (value as { controllerDowntimeMs?: unknown }).controllerDowntimeMs;
-  if (controllerDowntimeMs !== undefined && (!Number.isSafeInteger(controllerDowntimeMs)
-    || Number(controllerDowntimeMs) < 0 || Number(controllerDowntimeMs) > 300_000)) {
-    throw new Error("Controller downtime must be an integer between zero and five minutes");
-  }
-  const discardControllerCache = (value as { discardControllerCache?: unknown }).discardControllerCache === true;
-  if (discardControllerCache && !executionIds.some(id => {
-    const execution = runnerMatrix.find(row => row.id === id);
-    return execution?.suite.id === "everyday-workflows" && execution.task.id === "recover-controller"
-      && execution.environment.id === "daytona" && execution.profile.generation === "native" && execution.profile.provider === "codex";
-  })) throw new Error("Controller cache replacement requires the explicit remote Codex restart cell");
-  const crashAfterResult = (value as { crashAfterResult?: unknown }).crashAfterResult;
-  const controllerOutage = (value as { controllerOutage?: unknown }).controllerOutage;
-  const recoveryBinding = (value as { recoveryBinding?: unknown }).recoveryBinding;
-  if (recoveryBinding !== undefined && controllerOutage === undefined) throw new Error("Recovery observation requires a controller outage");
-  if (controllerOutage !== undefined && (!discardControllerCache || preserveRunner !== undefined || crashAfterResult !== undefined)) {
-    throw new Error("Controller outage requires the explicit remote cache-replacement cell without another crash boundary");
-  }
-  if (crashAfterResult !== undefined && (preserveRunner !== undefined || discardControllerCache)) {
-    throw new Error("A finalization crash cannot preserve a running provider or discard its controller cache");
-  }
-  return { requestId, discardControllerCache, ...(controllerDowntimeMs === undefined ? {} : { controllerDowntimeMs: Number(controllerDowntimeMs) }),
-    ...(recoveryBinding === undefined ? {} : { recoveryBinding: parseRecoveryBinding(recoveryBinding) }),
-    ...(controllerOutage === undefined ? {} : { controllerOutage: parseControllerOutage(controllerOutage) }),
-    ...(preserveRunner === undefined ? {} : { preserveRunner: parseRestartRunnerIdentity(preserveRunner) }),
-    ...(crashAfterResult === undefined ? {} : { crashAfterResult: parseFinalizationCrashBinding(crashAfterResult) }) };
-
-}
 
 async function writeRestartAck(
   requestId: string,
@@ -508,7 +446,7 @@ async function supervise() {
   let lastRestartRequestId: string | null = null;
   while (!shutdownRequested()) {
     if (unexpectedChildFailure) throw unexpectedChildFailure;
-    const request = await readRestartRequest();
+    const request = await readRestartRequest(restartRequestPath, executionIds);
     if (request && request.requestId !== lastRestartRequestId) {
       lastRestartRequestId = request.requestId;
       await restartServer(request);
