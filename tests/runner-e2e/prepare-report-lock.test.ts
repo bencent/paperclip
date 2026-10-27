@@ -1,5 +1,6 @@
 import { mkdtemp, mkdir, readFile, writeFile, copyFile, rm } from 'node:fs/promises';
 import { createHash } from 'node:crypto';
+import { execFileSync } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { expect, it } from 'vitest';
@@ -13,7 +14,7 @@ it.each(['valid', 'unknown-lock', 'changed-patch', 'wrong-output'])(
     try {
       await mkdir(relative, { recursive: true });
       for (const file of ['report-lock.json', 'report-lock.patch']) await copyFile(path.join(here, file), path.join(relative, file));
-      const input = await readFile(path.join(here, '../../pnpm-lock.yaml'));
+      const input = execFileSync('git', ['show', 'HEAD:pnpm-lock.yaml'], { cwd: path.resolve(here, '../..') });
       const policy = JSON.parse(await readFile(path.join(relative, 'report-lock.json'), 'utf8'));
       expect(createHash('sha256').update(input).digest('hex')).toBe(policy.inputSha256);
       const lock = path.join(root, 'pnpm-lock.yaml');
