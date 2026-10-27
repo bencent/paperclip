@@ -15,7 +15,7 @@ Do not mark an item done from a timer removal or a green check alone.
 | 01 | Custom-image setup expiry | Session writes, existing expiry, startup/retry/drain | [#17443](https://github.com/paperclipai/paperclip/pull/17443), merged after CI and passing reviews |
 | 02 | Remaining chat maintenance | Provider runtime discovery; voice reconciliation; milestones; wake notices; interaction continuations; terminal confirmations; GitHub recovery; Teams maintenance, separately by owner | Pending |
 | 03 | Run and task recovery | Orphan runs and active leases; shutdown workspace settlement; scheduled retries; queued runs; stranded assignments; resolved dependencies; task watchdogs; silent-run monitoring; stale locks | Pending |
-| 04 | Decision retention and notifications | Retention deadlines and notification delivery are separate reasons | Pending |
+| 04 | Decision retention and notifications | Retention deadlines and notification delivery are separate reasons | Retention pending; notification delivery implemented in slice 08, PR pending |
 | 05 | Decision expiry and interrupted effects | Expiry, effect recovery, continuation recovery | Pending |
 | 06 | Tool connection health | Configuration/use activation and defined proactive health deadlines | Pending |
 | 07 | Secret proposals, tool reviews, gateway tokens | Separate expiry/scrub/recovery owners | Secret proposals: [#17446](https://github.com/paperclipai/paperclip/pull/17446), merged; gateway credentials: [#17450](https://github.com/paperclipai/paperclip/pull/17450), merged; pending tool-review expiry: [#17453](https://github.com/paperclipai/paperclip/pull/17453), merged; approved recovery: [#17454](https://github.com/paperclipai/paperclip/pull/17454), merged after current-head CI and both 5/5 reviews; interrupted claims: [#17458](https://github.com/paperclipai/paperclip/pull/17458), merged after current-head CI and both 5/5 reviews; projection: [#17468](https://github.com/paperclipai/paperclip/pull/17468), interaction-link index verified and awaiting fresh CI/review |
@@ -335,3 +335,27 @@ gateway/startup/deadline selection passes 222 cases; server types/build pass.
 The initial invalid one-wake-per-approval assertion and corrected isolated-hint
 measurement are retained in the behavior document. Current-head CI/reviews remain
 required before this slice can merge.
+
+
+## Slice 08: decision-archive notification delivery
+
+Projection repair is #17468. Its bounded master integration passes local
+acceptance and awaits fresh checks and review. Slice 08 builds on that branch
+and separates archive notification delivery from retention scanning.
+The existing auto-archive transaction is the sole outbox producer. A committed
+enqueue wakes delivery; pending rows retain retries and delivering rows retain
+their saved five-minute claim deadline. Delivered history is quiet.
+
+The implementation preserves the delivery API and payload. It fences stale
+completion by claim timestamp and orders unattempted/oldest-attempted pending
+rows so failed batches do not starve later work. No table is added. Generated
+migration `0387_boring_professor_monster.sql` adds the concurrent partial index
+for pending delivery order. See [archive delivery](../idle-decision-archive-delivery.md).
+
+All 58 selected tests pass: 15 real-PostgreSQL retention/delivery cases, 42 startup
+cases and the shared deadline worker case. Migration checks, generated snapshot
+drift, server typecheck and build pass. The initial fixture failures, stale-claim
+counter regression and corrected disabled-mode expectation are recorded in the
+behavior document. Full current-head CI and both reviews remain required.
+Retention eligibility/scanning, decision expiry, effect recovery, and decision
+continuation delivery remain independent unfinished reasons in the full ledger.
