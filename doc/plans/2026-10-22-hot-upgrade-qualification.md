@@ -1345,3 +1345,12 @@ file. The original is 803 lines and the new file 321. The first split leaves one
 helper behind and fails one of 39 cases plus typechecking; restoring that fixture
 helper yields all 39 passes, UI typecheck and clean token gates. These are hook
 fixtures; they do not establish hosted viewer performance.
+
+Linux general-server shard 1 at transcript-head `405bedd189` executes all five
+live-event run-read tests successfully, including both new transcript-permission
+variants (2.346 seconds for the file). This is source-bound permission evidence;
+that head's other two CI failures remain failures. Master then adds its own
+migration 0388. Integration `e5acdc53c6` appends the unchanged idempotent checkpoint
+DDL as 0389, preserving every master SQL file and journal entry. The retained
+snapshots are 0385–0389; migration checks and server typecheck pass. This integration
+requires fresh current-head CI and review and adds no hosted qualification.
