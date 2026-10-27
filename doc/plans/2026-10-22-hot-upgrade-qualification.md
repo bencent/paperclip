@@ -1413,3 +1413,29 @@ checkpoint DDL as 0390. Retained snapshots are 0386–0390. Migration checks and
 server typecheck pass. The local database owner/lifetime batch initially has
 two loopback-listener EPERM failures and 14 passes; with loopback permission
 all 16 cases pass. A new exact-head CI and review gate remains required.
+
+
+### Ordinary warm admission with external checkpoints
+
+The actual external-persistence callback leaves a marker instead of a legacy
+full journal. A regression through the public server executor reproduces
+`durable_identity_unreadable` on the second completed warm turn. The correction
+restores the prior run's opaque checkpoint before identity and reuse checks. It
+uses the retained owner's run/issue or a validated native-session checkpoint,
+since an original marker can precede later warm identities. Three completed
+turns now pass, including selection of the second run's saved checkpoint for
+the third turn. The backend and database-load seam are scripted in this proof;
+the control plane, persistence callback, identity rotation and filesystem are
+real. This does not qualify an underlying harness.
+
+All 288 provider-wiring cases and server typecheck pass. The initial wider
+focused run reports two failures: the scripted runner projection had not been
+rotated for the third turn, and a legacy missing-checkpoint denial changed.
+The fixture now rotates the runner identity and legacy file-backed roots retain
+their existing checks. Initial typecheck also reports nullable fixture session
+IDs; the fixture is corrected before the passing typecheck. Real-Postgres cases
+are skipped by this Mac's support gate, including the new check that a foreign
+normalized session fails before any restored directory is created. Require
+current Linux CI execution before merge. No new streaming writes or idle SQL
+are added; reconstruction is limited to warm admission with an external marker
+or an older local projection.
