@@ -1271,3 +1271,11 @@ and the checker are unchanged from master09d4ca533e. This pre-existing checker
 failure remains recorded; package-cycle boundaries, protocol manifest, module
 boundaries and UI token gates pass. Final combined workspace typecheck and
 production build pass after the committed-view and supervisor request fixes.
+
+The runner contract lands in master at `0a08d37aa0` after exact-head CI and a
+fresh 5/5 review. Integrating that squash result keeps the server PR's remaining
+diff scoped to its own behavior. Master has meanwhile added migrations 0385 and
+0386, so the checkpoint schema is regenerated as 0387 with identical idempotent
+DDL. The final retained snapshots are 0383–0387. Migration numbering/safety and
+server typecheck pass. This ancestry/migration reconciliation requires fresh
+checks on the remaining three PRs and adds no hosted qualification evidence.
