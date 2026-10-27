@@ -1,3 +1,5 @@
+import * as runnerCheckpoint from "./native-runner-checkpoint.js";
+import { DurablePrpControlPlane } from "../../vendor/paperclip-runner/index.js";
 import * as environmentTaskRuntime from "../environment-task-runtime.js";
 import * as pluginTaskRuntime from "./plugin-runner-task.js";
 import * as completionFeedback from "./native-completion-feedback.js";
@@ -11290,9 +11292,9 @@ describe("runnerd provider runtime wiring", () => {
     await rm(isolatedStateDirectory, { recursive: true, force: true });
   });
 
-  it.each((["codex", "claude"] as const).flatMap(provider => (["unchanged", "changed", "runtime-context", "retirement-failed", "stale-owner", "active-owner", "missing-owner", "foreign-environment", "plugin-replaced", "plugin-managed-github"] as const).filter(scenario => provider === "codex" || scenario.startsWith("plugin-")).map(scenario => [provider, scenario] as const)))("rotates an owned warm %s remote runner before checking changed configuration: %s", async (provider, scenario) => {
+  it.each((["codex", "claude"] as const).flatMap(provider => (["unchanged", "external-checkpoint", "changed", "runtime-context", "retirement-failed", "stale-owner", "active-owner", "missing-owner", "foreign-environment", "plugin-replaced", "plugin-managed-github"] as const).filter(scenario => provider === "codex" || scenario.startsWith("plugin-")).map(scenario => [provider, scenario] as const)))("rotates an owned warm %s remote runner before checking changed configuration: %s", async (provider, scenario) => {
     const plugin = scenario === "plugin-replaced" || scenario === "plugin-managed-github";
-    const reusable = scenario === "unchanged" || scenario === "plugin-managed-github";
+    const reusable = ["unchanged", "external-checkpoint", "plugin-managed-github"].includes(scenario);
     const { permissionPolicy: _permissionPolicy, ...claudeProfile } = QUALIFIED_ACPX_PROFILES.claude;
     const first = { ...scopedNativeExecution(`warm-admission-${provider}-${scenario}`),
       schema: "paperclip.native-execution-input.v5" as const,
@@ -11301,7 +11303,7 @@ describe("runnerd provider runtime wiring", () => {
     if (provider === "claude") first.session.driverKind = "acpx_runtime";
     first.session.lifecyclePolicy = { mode: "warm", idleTimeoutMs: 60_000 };
     const next = { ...first, binding: { ...first.binding, runId: `${first.binding.runId}-next` },
-      session: { ...first.session, lifecyclePolicy: { mode: "warm" as const, idleTimeoutMs: ["unchanged", "runtime-context", "stale-owner", "missing-owner", "plugin-replaced", "plugin-managed-github"].includes(scenario) ? 60_000 : 90_000 } } };
+      session: { ...first.session, lifecyclePolicy: { mode: "warm" as const, idleTimeoutMs: ["unchanged", "external-checkpoint", "runtime-context", "stale-owner", "missing-owner", "plugin-replaced", "plugin-managed-github"].includes(scenario) ? 60_000 : 90_000 } } };
     if (scenario === "runtime-context") {
       next.runtimeContext = { ...first.runtimeContext,
         mcp: { ...first.runtimeContext.mcp, digest: "1".repeat(64) } };
@@ -11310,7 +11312,7 @@ describe("runnerd provider runtime wiring", () => {
     const environmentId = `warm-admission-${scenario}`;
     const target = { kind: "remote" as const, transport: "sandbox" as const, environmentId,
       remoteCwd: "/home/daytona/workspace", runner: { execute: vi.fn() } };
-    const identity = { runId: first.binding.runId, normalizedSessionId: first.session.normalizedSessionId,
+    const identity = { runId: first.binding.runId, normalizedSessionId: first.session.normalizedSessionId!,
       runnerInstanceId: `runner-${scenario}`, environmentLeaseId: first.binding.executionWorkspaceId };
     let replacementPending=false;
     const acquisition={outcome:"resumed" as "resumed"|"replacement",providerLeaseId:"task-first"};
@@ -11335,6 +11337,23 @@ describe("runnerd provider runtime wiring", () => {
 
     const root = await initializeScopedRunnerRoot(first, identity.runnerInstanceId);
     await writeRunnerAuthority(root, identity, "ready");
+    // Use the real control plane and persistence callback, not a handwritten marker.
+    const saved = new Map<string, import("../../vendor/paperclip-runner/index.js").DurablePrpCheckpoint>();
+    let persistedController: DurablePrpControlPlane | undefined;
+    const restore = scenario === "external-checkpoint"
+      ? vi.spyOn(runnerCheckpoint, "restoreNativeRunnerCheckpoint").mockImplementation(async (_db, binding, directory) => {
+          const checkpoint = saved.get(binding.runId);
+          if (!checkpoint) throw new Error("missing test checkpoint");
+          checkpoint.restoreSessionDirectory(directory);
+          return checkpoint;
+        }) : undefined;
+    if (restore) {
+      const completeIdentity = { ...identity, turnId: "turn-first", itemId: "item-first" };
+      // The authority must begin from a complete real state envelope.
+      await rm(join(root, "control-plane"), { recursive: true, force: true });
+      persistedController = new DurablePrpControlPlane({ stateDirectory: join(root, "control-plane"), identity: completeIdentity,
+        expectedRunnerVersion: "warm-test", expectedRunnerDigest: `sha256:${"a".repeat(64)}` });
+    }
     const order: string[] = [];
     let failRetirement = scenario === "retirement-failed";
     const firstSession = { close: vi.fn(async () => {
@@ -11348,7 +11367,7 @@ describe("runnerd provider runtime wiring", () => {
         criteria: [], remainingWork: [] }, evidence: [], verification: [], artifacts: [], attentionRequests: [] });
     if (!validated.ok) throw new Error("Invalid completion fixture");
     const result = { result: validated.result, terminal: { runTerminalState: "succeeded" },
-      turnId: "turn", normalizedSessionId: first.session.normalizedSessionId,
+      turnId: "turn", normalizedSessionId: first.session.normalizedSessionId!,
       providerSessionId: "provider", driverKind: "test", driverVersion: "1",
       nativeEventCount: 1, highestContiguousSourceSeq: 1, usage: null };
     const feedback = vi.spyOn(completionFeedback, "nativeCompletionFeedback").mockResolvedValue("accepted");
@@ -11357,9 +11376,21 @@ describe("runnerd provider runtime wiring", () => {
     state.execute.mockReset().mockImplementationOnce(async options => {
       retainedFeedback = state.createBackend.mock.calls.at(-1)![1].completionFeedback;
       await options.onSession?.(firstSession);
+      if (persistedController) {
+        persistedController.setCheckpointPersistence(async checkpoint => { saved.set(checkpoint.runId, checkpoint); });
+        await persistedController.flushCheckpoint();
+        expect(JSON.parse(await readFile(join(root, "control-plane/control-plane-state.json"), "utf8")).schema)
+          .toBe("paperclip.runner.external-control-plane-state.v1");
+      }
       return result;
     }).mockImplementationOnce(async options => {
       order.push("execute-next");
+      if (persistedController) {
+        persistedController.rotateRunIdentity({ ...identity, runId: next.binding.runId, turnId: "turn-next", itemId: "item-next" });
+        await persistedController.flushCheckpoint();
+        await writeFile(join(root, "runner/runner-state.json"), JSON.stringify(durableRunnerState(
+          { ...identity, runId: next.binding.runId }, "ready")));
+      }
       if (reusable) {
         await expect(retainedFeedback!(result.result)).resolves.toBe("accepted");
         expect(feedback).toHaveBeenLastCalledWith(firstDb, next.binding.runId, result.result);
@@ -11414,8 +11445,8 @@ describe("runnerd provider runtime wiring", () => {
         }
         if (scenario === "plugin-managed-github") expect(rebind).toHaveBeenCalledOnce();
         expect(order).toEqual(reusable ? ["execute-next"] : ["retire", "execute-next"]);
-        if (scenario === "unchanged") {
-          await writeRunnerAuthority(root, { ...identity, runId: next.binding.runId }, "ready");
+        if (["unchanged", "external-checkpoint"].includes(scenario)) {
+          if (!persistedController) await writeRunnerAuthority(root, { ...identity, runId: next.binding.runId }, "ready");
           const third = { ...next, binding: { ...next.binding, runId: `${next.binding.runId}-third` } };
           const thirdDb = leaseDb(third);
           const thirdSelect = thirdDb.select.bind(thirdDb);
@@ -11433,9 +11464,15 @@ describe("runnerd provider runtime wiring", () => {
             runnerExecutionTarget: pluginTarget as never,...pluginOptions })).resolves.toMatchObject({ exitCode: 0 });
           expect(firstSession.close).not.toHaveBeenCalled();
           expect(state.execute).toHaveBeenCalledTimes(3);
+          if (restore) {
+            expect(restore.mock.calls.map(([, binding]) => binding.runId)).toEqual([first.binding.runId, next.binding.runId]);
+            expect(existsSync(root)).toBe(true);
+          }
         }
       }
     } finally {
+      restore?.mockRestore();
+      await persistedController?.stop();
       failRetirement = false;
       resume?.mockRestore();owners?.mockRestore();feedback.mockRestore();
       await closeWarmNativeSessionsForEnvironment({ environmentId, reason: "test cleanup" });

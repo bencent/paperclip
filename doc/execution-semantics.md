@@ -2467,3 +2467,14 @@ Checkpoint-pool shutdown fences lazy creation even if the owner has never
 requested that pool. Later checkpoint access fails before allocating a client.
 An already-created pool remains cached and ended; unrelated owners and database
 test doubles keep their existing behavior. Closing an unused pool makes no SQL.
+
+
+Ordinary remote warm admission also restores external controller state before
+reading the durable identity or checking reuse. It uses the retained owner's
+last run and issue, or the validated saved native-session identity after owner
+loss. The marker may describe the first turn, so it cannot identify every later
+warm checkpoint. Legacy file-backed roots retain their existing checks. A
+restored checkpoint must match the normalized session before writing its local
+projection. This adds a scoped checkpoint read and local reconstruction only
+when warm admission encounters an external marker or an older projection; it
+adds no streaming checkpoint writes or recurring idle work.
