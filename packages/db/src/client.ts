@@ -298,6 +298,7 @@ export async function closeLivenessDb(db: Db, timeoutSeconds: number): Promise<v
 // during an aligned burst. Share at most two lazy connections per owner.
 const checkpointDbFactories = new WeakMap<object, () => Db>();
 const checkpointDbs = new WeakMap<object, Db>();
+const closedCheckpointOwners = new WeakSet<object>();
 
 /** The bounded controller checkpoint pool; transactions and test doubles keep
  * their existing database when they have no owning client factory. */
@@ -306,13 +307,15 @@ export function checkpointDb(db: Db): Db {
   if (existing) return existing;
   const factory = checkpointDbFactories.get(db);
   if (!factory) return db;
+  if (closedCheckpointOwners.has(db)) throw new Error("checkpoint_pool_closed");
   const created = factory();
   checkpointDbs.set(db, created);
   return created;
 }
 
-/** Keep the ended pool cached so late checkpoints cannot reopen it. */
+/** Fence lazy creation immediately, and keep any ended pool cached. */
 export async function closeCheckpointDb(db: Db, timeoutSeconds: number): Promise<void> {
+  closedCheckpointOwners.add(db);
   await checkpointDbs.get(db)?.$client.end({ timeout: timeoutSeconds });
 }
 
