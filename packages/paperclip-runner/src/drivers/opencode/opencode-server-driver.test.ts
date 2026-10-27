@@ -740,9 +740,13 @@ describe("OpenCodeServerDriver", () => {
     roots.push(root);
     let session: Awaited<ReturnType<OpenCodeServerDriver["openSession"]>> | undefined;
     try {
-      if (source === "ambient") vi.stubEnv("OPENROUTER_API_KEY", key);
+      if (source === "ambient") {
+        vi.stubEnv("OPENROUTER_API_KEY", key);
+        vi.stubEnv("no_proxy", undefined);
+        vi.stubEnv("NO_PROXY", "custody-bypass.invalid");
+      }
       const driver = new OpenCodeServerDriver({ model: `openrouter/${model}`, runtimeDirectory: root, command: fixture,
-        ...(source === "explicit" ? { environment: { PATH: process.env.PATH, OPENROUTER_API_KEY: key } } : {}) });
+        ...(source === "explicit" ? { environment: { PATH: process.env.PATH, OPENROUTER_API_KEY: key, NO_PROXY: "custody-bypass.invalid" } } : {}) });
       session = await driver.openSession({ runId: "custody", normalizedSessionId: "custody", workingDirectory: root });
       const configText = await readFile(join(root, "custody", "config", "opencode", "opencode.json"), "utf8");
       const config = JSON.parse(configText);
@@ -755,6 +759,7 @@ describe("OpenCodeServerDriver", () => {
       const environmentText = await readFile(join(root, "custody", "data", "fake-environment.json"), "utf8");
       expect(JSON.parse(environmentText).keys).not.toContain("OPENROUTER_API_KEY");
       expect(environmentText).not.toContain(key);
+      expect(JSON.parse(environmentText).noProxy).toBe("custody-bypass.invalid,127.0.0.1,localhost");
       const persisted = await readFile(join(root, "custody", "data", "fake-provider-custody.json"), "utf8");
       expect(persisted).not.toContain(key);
       expect(JSON.parse(persisted)).toMatchObject({ providerOptions: { baseURL, apiKey } });
@@ -765,6 +770,10 @@ describe("OpenCodeServerDriver", () => {
       const payload = { model, messages: [{ role: "user", content: "synthetic" }] };
       expect((await fetch(url, { method: "POST", headers, body: JSON.stringify({ ...payload, model: "wrong-model" }) })).status).toBe(400);
       expect(received).toHaveLength(0);
+      for (const [field, value] of Object.entries({ models: ["wrong-model"], route: "fallback", plugins: [{ id: "web" }], transforms: ["middle-out"] })) {
+        expect((await fetch(url, { method: "POST", headers, body: JSON.stringify({ ...payload, [field]: value }) })).status).toBe(400);
+        expect(received).toHaveLength(0);
+      }
       expect((await fetch(url, { method: "POST", headers, body: JSON.stringify(payload) })).status).toBe(200);
       expect(received).toEqual([{ authorization: `Bearer ${key}`, body: payload, referer: "https://paperclip.ing" }]);
       expect(upstreamTransport.urls).toEqual(["https://openrouter.ai/api/v1/chat/completions"]);
