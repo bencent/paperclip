@@ -1,4 +1,4 @@
-import { expect, it } from "vitest";
+import { expect, it, vi } from "vitest";
 import { LiveTranscriptInterests } from "./live-transcript-interests";
 function fixture() {
   const store = new LiveTranscriptInterests(); const sent: any[] = [];
@@ -7,6 +7,18 @@ function fixture() {
   const acknowledge = () => store.receive({ type: "live.subscribed", version: 1, revision: sent.at(-1).revision });
   return { store, sent, socket, capable, acknowledge };
 }
+it("acknowledges a recovery boundary once, ignoring stale and ordinary interest acknowledgements", () => {
+  const f = fixture(), recovered = vi.fn();
+  f.store.open(f.socket); f.capable(); f.acknowledge();
+  f.store.receive({ type: "live.resync", version: 1, revision: 1 }, recovered);
+  f.store.receive({ type: "live.subscribed", version: 1, revision: 1 }, recovered);
+  expect(recovered).not.toHaveBeenCalled();
+  f.store.receive({ type: "live.subscribed", version: 1, revision: 2 }, recovered);
+  f.store.receive({ type: "live.subscribed", version: 1, revision: 2 }, recovered);
+  f.store.acquire(["new-run"]);
+  f.store.receive({ type: "live.subscribed", version: 1, revision: 3 }, recovered);
+  expect(recovered).toHaveBeenCalledOnce();
+});
 it("unions ref-counted consumers and acknowledges the applied revision before becoming healthy", () => {
   const f = fixture(); const releaseA = f.store.acquire(["run-1"]); f.store.open(f.socket);
   expect(f.sent).toEqual([{ type: "live.hello", version: 1, capabilities: ["run-interests"] }]);

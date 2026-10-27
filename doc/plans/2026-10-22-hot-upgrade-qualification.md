@@ -1474,3 +1474,52 @@ every master SQL file and journal entry. The five snapshots are 0387–0391.
 Migration checks, server typecheck and all 13 warm-admission/configuration
 variants pass after integration. Current-head CI and review remain required;
 prior source checks are not carried forward as a new-head pass.
+
+
+### Plugin recipient redaction and post-recovery application reads
+
+The new native live payload reproduced a registered-secret leak through plugin
+`agents.sessions.event` notifications. Browser-only redaction did not protect
+that separate recipient. Browser and plugin delivery now share the canonical
+structural, current-user and per-run registered-secret read pipeline. Plugin
+subscriptions use the existing bounded delivery queue, including its stalled
+read deadline and disposal rules. No redaction lookup is added to the producer
+or an uninterested native stream. Existing plugin company/run/session checks
+remain in their owner. Legacy chunks and final text are also redacted.
+
+The regression registers a synthetic run secret through the production registry
+and publishes native events through the real bus and host-service subscription.
+Database storage and the secret provider are scripted; the registry, recipient
+pipeline and worker notification are real. Native, legacy and final messages
+stay redacted; a failed redaction drops the event, and disposal suppresses late
+notification and later reads. All 47 registry/plugin/delivery/WebSocket/toast
+cases pass, with server typecheck. Recipient redaction can add database reads
+for active plugin subscribers; final hosted plugin-viewer costs are unmeasured.
+
+Two UI regressions reproduce a run missed between the pre-resync refresh and
+the server's replacement-interest acknowledgement. Application queries now
+refresh after a matching recovery ACK. If a read was already in flight, one
+follow-up waits for it to settle; stale scopes and inactive queries cannot
+refresh. Initial and ordinary interest acknowledgements add no refresh. All
+174 live-provider/recovery/interest cases and UI typecheck pass, including
+stale/duplicate acknowledgements and disconnect, hidden, company, session and
+unmount races. Token gates pass. This introduces no recurring healthy polling.
+
+### Current Linux receipts and one expiry-worker diagnostic retry
+
+At server `8fbe62b41d`, Linux job 122535673837 passes all 938 native-executor
+cases. The warm external-checkpoint regression is included. Job 122535673326
+passes the native recovery lane (115 passes, five container-only skips),
+including the encrypted-restore session guard, fresh preparation (63.694 s),
+claim-lock contention (4.043 s), and 101-owner recovery (4.284 s).
+
+Server job 122535673841 has 3,876 passes, one skip and one failure in the
+unchanged expiry-worker retry/drain timing test; cleanup also reports that
+test's retained injected error. The entire server/database tree and this
+fixture are identical on qualification source `b64cac6951`, whose job
+122536300082 passes all 20 expiry cases and all 3,877 shard cases. The fixture
+advances fake time while asynchronous retry work can be in flight. One
+diagnostic retry of the failed current-head server job is authorized and
+requested; the exact timing race is not proven and no assertion is weakened.
+A repeated failure requires investigation, not another retry. This record does
+not mark that gate green before the retry finishes.

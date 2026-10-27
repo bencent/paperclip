@@ -13,6 +13,7 @@ export class LiveTranscriptInterests {
   #revision = 0;
   #acknowledged = 0;
   #lastResyncRevision = 0;
+  #recovering = false;
   #subscribedRunIds = new Set<string>();
   #sentRunIds: string[] = [];
   #snapshot: TranscriptStreamState = DISCONNECTED_TRANSCRIPT_STREAM;
@@ -56,12 +57,12 @@ export class LiveTranscriptInterests {
   }
   open(socket: Sender) {
     this.#socket = socket; this.#capable = false; this.#revision = 0; this.#acknowledged = 0; this.#lastResyncRevision = 0;
-    this.#subscribedRunIds = new Set();
+    this.#subscribedRunIds = new Set(); this.#recovering = false;
     this.#publish(false, true);
     this.#send({ type: "live.hello", version: 1, capabilities: ["run-interests"] });
   }
-  close() { this.#socket = null; this.#capable = false; this.#subscribedRunIds = new Set(); this.#publish(false, true); }
-  receive(value: unknown): boolean {
+  close() { this.#socket = null; this.#capable = false; this.#recovering = false; this.#subscribedRunIds = new Set(); this.#publish(false, true); }
+  receive(value: unknown, onRecoveryAcknowledged?: () => void): boolean {
     if (!value || typeof value !== "object") return false;
     const frame = value as { type?: string; version?: number; capabilities?: unknown; revision?: number };
     if (typeof frame.type !== "string" || !frame.type.startsWith("live.")) return false;
@@ -74,11 +75,13 @@ export class LiveTranscriptInterests {
       // The protocol bounds one connection to 1,000 interests. Keep HTTP
       // fallback available when a view exceeds that limit.
       this.#publish(this.#counts.size <= 1_000);
+      if (this.#recovering) { this.#recovering = false; onRecoveryAcknowledged?.(); }
     } else if (frame.type === "live.resync" && Number.isSafeInteger(frame.revision)
       && Number(frame.revision) > this.#lastResyncRevision && Number(frame.revision) <= this.#revision) {
       // A real gap can precede an in-flight replacement ACK. Unchanged interests
       // still need catch-up, even when the notice names the earlier revision.
       this.#lastResyncRevision = Number(frame.revision);
+      this.#recovering = true;
       this.#subscribedRunIds = new Set();
       this.#publish(false, true);
       this.#replace();

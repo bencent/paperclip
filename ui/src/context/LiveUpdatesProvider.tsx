@@ -1,6 +1,7 @@
 import { LiveTranscriptInterests, DISCONNECTED_TRANSCRIPT_STREAM } from "../lib/live-transcript-interests";
 import { resolveAgentAppearance } from "@paperclipai/shared";
 import { getPageVisibility, usePageVisibility } from "../lib/page-visibility";
+import { createLiveQueryRecovery } from "../lib/live-query-recovery";
 import {
   createContext,
   useCallback,
@@ -2184,6 +2185,9 @@ export function LiveUpdatesProvider({ children }: { children: ReactNode }) {
         return;
       }
       socket = nextSocket;
+      let recoveryActive = true;
+      const recoverQueries = createLiveQueryRecovery(queryClient,
+        () => !closed && recoveryActive && socket === nextSocket && getPageVisibility().visible);
 
       nextSocket.onopen = () => {
         if (closed || socket !== nextSocket) {
@@ -2217,7 +2221,7 @@ export function LiveUpdatesProvider({ children }: { children: ReactNode }) {
 
         try {
           const parsed = JSON.parse(raw) as LiveEvent;
-          if (transcripts.receive(parsed)) {
+          if (transcripts.receive(parsed, recoverQueries)) {
             if ((parsed as { type: string }).type === "live.resync") {
               // Overflow can also drop lifecycle events; refresh active views,
               // while transcript consumers catch up after the new interest ACK.
@@ -2252,6 +2256,7 @@ export function LiveUpdatesProvider({ children }: { children: ReactNode }) {
 
       nextSocket.onerror = () => {
         if (closed || socket !== nextSocket) return;
+        recoveryActive = false;
         setConnectedScopeKey((current) => current === socketScopeKey ? null : current);
         // Wait for onclose to drive the reconnect. Self-closing here is what
         // produces the "closed before connection established" browser noise.
@@ -2259,6 +2264,7 @@ export function LiveUpdatesProvider({ children }: { children: ReactNode }) {
 
       nextSocket.onclose = () => {
         if (socket !== nextSocket) return;
+        recoveryActive = false;
         socket = null;
         transcripts.close();
         if (closed) return;
