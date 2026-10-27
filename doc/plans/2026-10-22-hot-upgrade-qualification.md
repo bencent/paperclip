@@ -1279,3 +1279,36 @@ diff scoped to its own behavior. Master has meanwhile added migrations 0385 and
 DDL. The final retained snapshots are 0383–0387. Migration numbering/safety and
 server typecheck pass. This ancestry/migration reconciliation requires fresh
 checks on the remaining three PRs and adds no hosted qualification evidence.
+
+### Merge follow-up: fresh claim contention and transcript authority
+
+Review correction `69e6d415c0` starts fresh execution leases from the database
+wall clock in the final claim update, after run locks and lineage reads. The new
+Postgres variant observes the actual claim blocked on a run-row lock and requires
+a full 60-second deadline after release. It changes no new lease timestamp. The
+existing startup-renewal case and server typecheck pass locally. The host skips
+the integration suite, including the permitted repeat, so Linux CI must actually
+execute both the contention variant and the 101-run expired-owner case.
+
+The full executor file additionally reports 921 passes and 16 failures: all
+16 fail at embedded-Postgres startup, before their database assertions. The local
+database limitation remains a failure, not a full executor pass. Source CI is
+required. No paid harness test or deployed artifact is involved in these checks.
+
+Transcript correction `84e9bc45c8` adds the current HTTP company-scope permission
+to full WebSocket event/log delivery alongside existing task access. New real-key
+Postgres/WebSocket cases cover both negotiation modes, allowed task access under
+low-trust policy, blocked native and legacy content, and policy grant/restriction
+on the same connection. The first local attempt fails listener sandboxing; its
+permitted repeat fails embedded-Postgres startup and skips all five cases. These
+new cases require actual passing Linux execution before the transcript merge.
+Server typecheck and 27 existing delivery/WebSocket/toast cases pass locally.
+
+The qualification instructions now state the actual 125-second remote native
+Codex/Claude default and the explicit 1000 ms override for a short experiment.
+Master then adds its own migration 0387. Reconciliation `96d07efb0f` preserves all
+master SQL/journal entries byte-for-byte and appends checkpoint migration 0388
+with the same idempotent DDL. Snapshots 0384–0388, numbering/safety and server
+typecheck pass. Each updated candidate still needs fresh CI and exact-head
+review. Hosted performance, different-artifact upgrade and rollback gates remain
+open; merging source does not qualify them.
