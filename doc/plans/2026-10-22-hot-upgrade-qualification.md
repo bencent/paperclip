@@ -1179,3 +1179,52 @@ variants. Two regressions first reproduce collisions between database IDs and
 synthetic live IDs, then pass without duplicate keys or missing rows. All 30
 history/visibility cases pass. This is a presentation fix and changes neither
 canonical logs nor checkpoint writes.
+
+### Normal-operation hosted comparison and merge update (2026-10-27)
+
+The hosted release comparison uses Core-only baseline
+`5823e9a6646b1624416a1e33f6016037cb88c1a3` and candidate
+`445a76563c444188d35ddb4f219ddee8292d4f73`, each with two app CPUs,
+1,500,000,000 bytes of app memory, Neon 0.25–1 CU and 2,000 synthetic historical
+tasks. The source range includes other Core changes, so it does not isolate the
+causal cost of recovery.
+
+A baseline-only 50-read/10-write-per-second warmup overloaded and was stopped:
+1,016 offered requests produced 652 successes and 364 client timeouts. The
+bottleneck remains incompletely localized. The original ten-agent ABBA, burst
+and viewer acceptance profile has not passed.
+
+A separately declared API-only pair at 10 reads and two writes per second uses
+120 seconds of warmup and 120 seconds of measurement. Both arms complete all
+1,440 requests without errors, with no active agents or viewers. Baseline and
+candidate raw Postgres transactions are 430.77/s and 430.56/s, including observer
+and background work. App CPU is 12.70% and 13.04% of the two-CPU allocation. Read
+p99 is 3,120 ms and 1,979 ms; write p99 is 3,359 ms and 2,384 ms. Both fail the
+absolute latency gates. Peak cgroup memory is 1,136.5 MiB and 1,180.8 MiB; the
+candidate exceeds the declared 80% memory gate at 82.5%. Main-process peak RSS
+is 841.3 MiB and 822.4 MiB. A short ordered pair cannot establish leak behavior,
+sustained capacity or active-run checkpoint cost. No checkpoint mutations occur
+in this API-only workload. Actual database CPU and statement counts are not
+available; transaction counts are not statement counts.
+
+One native Codex/Daytona pilot per arm completes 20 steps, with independent
+hash-chain and exclusive-effect file checks. The candidate retains 80 encrypted
+checkpoint parts totaling 466,260 bytes. This is not a growth-rate measurement.
+Both test companies subsequently pause because gateway model usage is unpriced
+to Paperclip. The scaled native comparison remains unexecuted; budget enforcement
+is not qualified by these pilots. The immutable report SHA-256 is
+`8ccde5cd71fd1076c9046135fdb9a46d7256c863672f63dee3b614b123615bc6`;
+the metrics-only evidence archive SHA-256 is
+`8c650ba41c0b8f8140a8f654840feb6dc165879068e92f576534a0dc995ee49e`.
+
+The master reconciliation preserves published Copilot v66 and the prior
+hot-upgrade candidate identities, and generates v68 for the combined sources.
+The focused runner lane passes 290 cases and typecheck. Its first sandboxed
+invocation cannot open loopback listeners; the permitted retry passes. The
+server now resolves the encryption key once per checkpoint batch and removes
+two unused execution-lease declarations. Six key batching/provider cases, server
+typecheck, migration safety and boundary/token checks pass. The checkpoint
+migration is regenerated as 0385 after master's newer migrations and retains
+preview idempotence. Fresh CI and review are required for the updated heads.
+These code checks do not close the remaining different-artifact, hosted rollout,
+additional-harness or complete active-agent/viewer qualification gates.

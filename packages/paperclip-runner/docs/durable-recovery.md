@@ -70,6 +70,16 @@ a scripted harness, removes the controller's launch files, then recovers the
 same process and provider session and completes another turn. This exercises the
 real transport; it does not qualify a hosted OpenCode or ACPX deployment.
 
+## Source-bound profile history
+
+Copilot profile v68 binds the merged hot-upgrade and current master transport.
+Published v66 and the earlier hot-upgrade v67 identity remain byte-for-byte
+historical records. The distinct development v66 identity is retained under
+`copilot-profile-v66-hot-upgrade-candidate-historical-identity.json`; it does not
+replace the published v66 fixture. Decoding historical versions does not grant
+fresh-launch permission. Installation still requires the exact current profile,
+package and digest. These records do not establish hosted harness qualification.
+
 ## External controller checkpoints
 
 The optional controller persistence callback stores recovery control state, not
