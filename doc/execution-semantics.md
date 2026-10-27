@@ -2462,3 +2462,8 @@ Fresh execution claims start their lease from the database wall clock in the
 final claim update, after run-row locks and replacement-history reads. Lock
 contention cannot consume the new remote controller's 60-second lease before
 renewal begins at commit. Recovery claims use the same clock rule.
+
+Checkpoint-pool shutdown fences lazy creation even if the owner has never
+requested that pool. Later checkpoint access fails before allocating a client.
+An already-created pool remains cached and ended; unrelated owners and database
+test doubles keep their existing behavior. Closing an unused pool makes no SQL.

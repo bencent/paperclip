@@ -3,7 +3,7 @@ import { prepareControllerDatabase } from "./controller-database.js";
 import { readUpgradeArtifacts, verifyUpgradeArtifact, assertServingArtifact, upgradeArtifactKey, type ServingArtifact } from "./upgrade-artifacts.js";
 import { createControllerRecoveryObserver } from "./controller-recovery-observer.js";
 import { readFinalizationCrashBoundary } from "./finalization-crash-boundary.js";
-import { replaceController, type ControllerOutageReceipt } from "./controller-outage.js";
+import { replaceController, retireControllerCache, type ControllerOutageReceipt } from "./controller-outage.js";
 import { recoverInterruptedFeedback } from "./feedback-recovery.js";
 import { normalizedSecrets } from "./redaction.js";
 import { CREDENTIAL_NAMES } from "./types.js";
@@ -349,7 +349,7 @@ async function restartServer({ requestId, preserveRunner, discardControllerCache
   if (!previous) throw new Error("No Paperclip server is available to restart");
   const discardCache = async () => {
     const cache = path.join(paperclipHome, "instances", required("PAPERCLIP_INSTANCE_ID"), "runtime", "paperclip-runner");
-    await rename(cache, path.join(controlDirectory, `retired-controller-cache-${requestId}`));
+    await retireControllerCache(cache, path.join(controlDirectory, `retired-controller-cache-${requestId}`));
     appendLog(`Restart request ${requestId}: old controller cache made unavailable\n`);
   };
   if (controllerOutage) {

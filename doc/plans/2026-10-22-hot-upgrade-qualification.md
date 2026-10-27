@@ -1354,3 +1354,28 @@ migration 0388. Integration `e5acdc53c6` appends the unchanged idempotent checkp
 DDL as 0389, preserving every master SQL file and journal entry. The retained
 snapshots are 0385–0389; migration checks and server typecheck pass. This integration
 requires fresh current-head CI and review and adds no hosted qualification.
+
+### Review follow-up: shutdown and qualification evidence boundaries
+
+Server correction `9bb9d3417e` fences checkpoint-pool creation even when shutdown
+precedes first use. The real lazy-client regression fails before correction and
+passes afterward; all 12 checkpoint-lifetime/options cases and database typecheck
+pass without opening a database connection. Existing created pools stay ended,
+other owners remain usable, and test doubles retain their fallback behavior.
+
+The qualification review batch reproduces 14 failures: absent-cache retirement,
+missing or mismatched expected artifact pairs, malformed database history, and
+invalid outage/manifest configuration without saved evidence. After correction,
+all 91 focused outage, observer, executable smoke, cleanup, remote-restart and
+artifact cases pass with E2E typecheck. Artifact smoke checks both revision and
+frozen tree against the requested A/B/A transition. An absent old cache is safe;
+a missing destination parent with a still-present cache remains a failure.
+Malformed history fails before checkpoint loading. Seed evidence now precedes
+configuration reads, so invalid settings and manifests retain failed reports.
+
+The reported wait on an already-completed original run is already handled by
+`waitForRemoteRestartBoundary` and `pollUntil`'s immediate rejection. Existing
+cases cover missing, succeeded, failed, cancelled and timed-out runs in one read,
+with no clock advance. This remains an unexercised boundary; it does not authorize
+a replacement task or claim active continuity after completion. These checks add
+no real harness turns, deployed artifacts, or hosted upgrade acceptance.

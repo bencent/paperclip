@@ -1,3 +1,4 @@
+import { lstat, rename } from "node:fs/promises";
 import type { ServingArtifact } from "./upgrade-artifacts.js";
 import type { ControllerRecoveryReceipt } from "./controller-recovery-observer.js";
 import { setTimeout as delay } from "node:timers/promises";
@@ -52,7 +53,9 @@ export function controllerOutageForExecution(execution: MatrixExecution, env: No
 }
 
 /** A fault receipt is required in addition to the runner's continuity receipts. */
-export function validControllerOutageReceipt(value: unknown, expected?: ControllerOutage, requestId?: string): value is ControllerOutageReceipt {
+export function validControllerOutageReceipt(value: unknown, expected?: ControllerOutage, requestId?: string,
+  expectedArtifacts?: { previous: Pick<ServingArtifact, "revision" | "treeSha256">;
+    replacement: Pick<ServingArtifact, "revision" | "treeSha256"> }): value is ControllerOutageReceipt {
   if (!value || typeof value !== "object" || Array.isArray(value)) return false;
   const r = value as ControllerOutageReceipt;
   try { parseControllerOutage(r); } catch { return false; }
@@ -73,6 +76,11 @@ export function validControllerOutageReceipt(value: unknown, expected?: Controll
         && ["released", "development-build"].includes(a.evidence))
       && r.previousArtifact.revision !== r.replacementArtifact.revision
       && r.previousArtifact.treeSha256 !== r.replacementArtifact.treeSha256))
+    && (!expectedArtifacts || Boolean(r.previousArtifact && r.replacementArtifact
+      && r.previousArtifact.revision === expectedArtifacts.previous.revision
+      && r.previousArtifact.treeSha256 === expectedArtifacts.previous.treeSha256
+      && r.replacementArtifact.revision === expectedArtifacts.replacement.revision
+      && r.replacementArtifact.treeSha256 === expectedArtifacts.replacement.treeSha256))
     && (requestId === undefined || r.requestId === requestId)
     && (!expected || (r.signal === expected.signal && r.holdMs === expected.holdMs));
 }
@@ -132,4 +140,20 @@ export async function replaceController<T extends { pid?: number }>(input: {
   if (!validControllerOutageReceipt(receipt, outage, input.requestId)) throw new Error("Controller outage did not produce a qualifying replacement receipt");
   await input.afterReady?.(receipt, record);
   return receipt;
+}
+
+/** Retire only the controller-owned cache; this is not Runner state. */
+export async function retireControllerCache(cache: string, retired: string): Promise<void> {
+  try { await rename(cache, retired); }
+  catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+    // ENOENT can also mean the destination parent is missing. Only absence of
+    // the old cache satisfies retirement; preserve every other failure.
+    try { await lstat(cache); }
+    catch (missing) {
+      if ((missing as NodeJS.ErrnoException).code === "ENOENT") return;
+      throw missing;
+    }
+    throw error;
+  }
 }
