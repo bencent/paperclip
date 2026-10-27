@@ -1059,7 +1059,7 @@ describeEmbeddedPostgres("native runner restart recovery with real processes", (
     }
   }, EMBEDDED_POSTGRES_TEST_TIMEOUT_MS);
 
-  it("keeps a fresh remote claim alive past its initial lease while preparation is blocked", async () => {
+  it.each(["preparation", "claim lock"])("gives a fresh remote claim its full lease through blocked %s", async (blockedPhase) => {
     const fixture = await seedRun("FRESH-SLOW-PREPARATION");
     const environmentId = randomUUID(), leaseId = randomUUID();
     await fixture.db.insert(environments).values({ id: environmentId, name: "Fresh preparation fixture", driver: "sandbox" });
@@ -1080,6 +1080,22 @@ describeEmbeddedPostgres("native runner restart recovery with real processes", (
     let reached!: () => void, release!: () => void;
     const claimed = new Promise<void>(resolveReady => { reached = resolveReady; });
     const preparation = new Promise<void>(resolveReady => { release = resolveReady; });
+    let releaseLock: (() => void) | undefined;
+    let holder: Promise<void> | undefined;
+    let lockPid: number | undefined;
+    let leaseStartsAfter: Date | undefined;
+    if (blockedPhase === "claim lock") {
+      let locked!: () => void;
+      const lockTaken = new Promise<void>(resolve => { locked = resolve; });
+      const lockReleased = new Promise<void>(resolve => { releaseLock = resolve; });
+      holder = fixture.db.transaction(async tx => {
+        const [connection] = await tx.execute(sql`select pg_backend_pid() as pid`);
+        lockPid = Number(connection.pid);
+        await tx.select().from(heartbeatRuns).where(eq(heartbeatRuns.id, fixture.runId)).for("update");
+        locked(); await lockReleased;
+      });
+      await lockTaken;
+    }
     const running = executePaperclipNativeSession({ db: fixture.db, execution,
       runnerInstanceId: fixture.native.runnerInstanceId, backend,
       runnerExecutionTarget: { kind: "remote", transport: "sandbox", environmentId, leaseId, remoteCwd: runtimeRoot },
@@ -1088,8 +1104,29 @@ describeEmbeddedPostgres("native runner restart recovery with real processes", (
       },
     }).catch(error => error);
     try {
+      if (blockedPhase === "claim lock") {
+        // Observe the real claim waiting on the run row after it has locked its
+        // coordinator. The lease must start after this wait, not before it.
+        await expect.poll(async () => {
+          const [waiting] = await fixture.db.execute(sql`select exists (
+            select 1 from pg_stat_activity where ${lockPid} = any(pg_blocking_pids(pid))
+              and query like 'select %from "heartbeat_runs"%for update%'
+          ) as blocked`);
+          return waiting.blocked;
+        }, { timeout: 10_000 }).toBe(true);
+        await fixture.db.execute(sql`select pg_sleep(1)`);
+        const [observed] = await fixture.db.execute(sql`select clock_timestamp() as observed_at`);
+        leaseStartsAfter = new Date(String(observed.observed_at));
+        releaseLock!(); await holder;
+      }
       await Promise.race([claimed, running.then(error => { throw error; })]);
       const [initial] = await fixture.db.select().from(nativeRunFinalizations).where(eq(nativeRunFinalizations.runId, fixture.runId));
+      if (leaseStartsAfter) {
+        expect(initial.leaseExpiresAt!.getTime() - leaseStartsAfter.getTime()).toBeGreaterThan(59_900);
+        release();
+        expect(await running).toBe(failure);
+        return;
+      }
       await new Promise(resolveWait => setTimeout(resolveWait, Math.max(0, initial.leaseExpiresAt!.getTime() - Date.now() + 2_000)));
       const [current] = await fixture.db.select().from(nativeRunFinalizations).where(eq(nativeRunFinalizations.runId, fixture.runId));
       expect(current.leaseExpiresAt!.getTime()).toBeGreaterThan(Date.now());
@@ -1098,7 +1135,7 @@ describeEmbeddedPostgres("native runner restart recovery with real processes", (
       expect(current.attempt).toBe(1);
       release();
       expect(await running).toBe(failure);
-    } finally { release(); await running; }
+    } finally { releaseLock?.(); await holder; release(); await running; }
   }, EMBEDDED_POSTGRES_TEST_TIMEOUT_MS);
 
   it("renews a remote claim through slow preparation and shares renewal with execution", async () => {
