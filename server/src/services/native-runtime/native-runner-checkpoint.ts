@@ -153,9 +153,12 @@ export async function loadNativeRunnerCheckpoint(db: Db, binding: Binding): Prom
   return checkpoint;
 }
 
-export async function restoreNativeRunnerCheckpoint(db: Db, binding: Binding, root: string) {
+export async function restoreNativeRunnerCheckpoint(db: Db, binding: Binding, root: string, normalizedSessionId?: string) {
   const checkpoint = await loadNativeRunnerCheckpoint(db, binding);
   if (!checkpoint) return null;
+  if (normalizedSessionId !== undefined && checkpoint.recoveryEvidence.normalizedSessionId !== normalizedSessionId) {
+    throw new Error("native_runner_checkpoint_binding_mismatch");
+  }
   checkpoint.restoreSessionDirectory(root);
   return checkpoint;
 }

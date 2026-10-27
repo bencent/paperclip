@@ -812,6 +812,9 @@ describeEmbeddedPostgres("native runner restart recovery with real processes", (
     expect(JSON.stringify(raw)).not.toContain(token);
     expect(JSON.stringify(raw)).not.toContain("durable-command");
     await rm(root, { recursive: true, force: true });
+    await expect(restoreNativeRunnerCheckpoint(fixture.db, binding, root, "another-session"))
+      .rejects.toThrow("native_runner_checkpoint_binding_mismatch");
+    expect(existsSync(root)).toBe(false);
     expect((await restoreNativeRunnerCheckpoint(fixture.db, binding, root))?.records).toEqual(saved?.records);
     const restored = new DurablePrpControlPlane({ stateDirectory: resolve(root, "control-plane"),
       identity: options.prpIdentity, expectedRunnerVersion: saved!.runnerVersion, expectedRunnerDigest: saved!.runnerDigest });
