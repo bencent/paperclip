@@ -19,6 +19,27 @@ Paperclip separates four concepts that are easy to blur together:
 
 The system works best when those are kept separate.
 
+### Onboarding first-task creation
+
+When an authenticated agent run serves the server-created `onboarding_first_task`,
+new task creation requires acceptance of its latest ordinary proposal. The same
+transactional admission applies to native `create_task` and REST issue/child
+creation. Choosing a different parent, including a standalone task, does not
+change the run's source task.
+
+Acceptance comes from a saved human card decision or a saved conversational
+resolution linked to a genuine later user comment on that task. Opening answers
+and clarification responses alone, agent-only decisions, and tool/credential
+approvals do not authorize the proposal. A newer pending or rejected proposal supersedes an
+older acceptance. A saved plan requires approval of its current document revision;
+checkbox decisions retain the user's actual selected scope.
+
+Planning documents, questions and proposal cards remain available before approval.
+Ordinary task delegation and previously committed task-creation replay retain
+their existing behavior, including dispatch recovery for already admitted work.
+This boundary governs new task creation; other execution and resource authorities
+continue to apply independently.
+
 ## 2. Assignee Semantics
 
 An issue has at most one assignee.
@@ -1582,6 +1603,14 @@ delta when attaching a new run. Other stale-event and authority checks remain.
 
 ### Explicit user continuation after execution failure
 
+A deferred chat Retry retains its authorized source batch when it resumes.
+Separate board queues do not join that batch. For a historical mixed batch
+refused before provider startup, a new task Retry can restore the undelivered
+receipts only after certifying the exact bootstrap failure, source authority,
+unchanged board comments and absence of execution, allocation or prior delivery.
+The restoration is audited. Historical runs and budget-skipped receipts remain
+unchanged; each input still passes its ordinary admission and dispatch checks.
+
 When a user's comment also assigns the task back to its agent, the assignment
 wake retains that comment's continuation intent. Admission validates the saved
 comment, its author, task, timing and delivery receipt through the same checks as
@@ -1608,6 +1637,23 @@ system wake cannot release a hold. The source task keeps its assignee. Process
 ownership, active controllers, cleanup leases, pause, approval, budget, and normal
 execution gates still apply. Dependency-blocked interaction mode remains limited
 to its existing answer/triage contract.
+
+Snapshot preservation and native copyback are distinct receipts. A historical
+workspace recovered as an immutable snapshot does not make its old native sync
+reference finalized. Once recovery settles, the current inbound owner can
+reauthorize its same unconsumed durable human request and select a fresh isolated
+workspace. The saved snapshot attaches to that successor through the existing
+verified attachment path. A saved board-message queue uses the same fresh
+strategy. Historical holds for the same failed run share that recovery strategy;
+each still requires its own execution and termination proofs. Neither path
+replays the stopped turn, adopts a chat request through the generic board queue,
+nor invents a copyback hash or resets the predecessor's attempt count.
+A later ordinary turn keeps the current source-free task directory, including a
+fresh attempt directory. Inherited agent Git defaults do not turn that saved
+directory into a Git base. Recognition requires the current same-task binding,
+active local directory realization, and verified canonical path. Explicit new
+source or Git requirements and immutable recovery bindings keep their existing
+selection rules. Preparation rechecks the binding and path under the source lock.
 
 The hold retirement, audit record, and new run commit together under the task
 lock. The new turn uses a fresh provider session and retains the latest user
