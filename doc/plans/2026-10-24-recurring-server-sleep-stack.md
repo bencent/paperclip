@@ -16,7 +16,7 @@ Do not mark an item done from a timer removal or a green check alone.
 | 02 | Remaining chat maintenance | Provider runtime discovery; voice reconciliation; milestones; wake notices; interaction continuations; terminal confirmations; GitHub recovery; Teams maintenance, separately by owner | Pending |
 | 03 | Run and task recovery | Orphan runs and active leases; shutdown workspace settlement; scheduled retries; queued runs; stranded assignments; resolved dependencies; task watchdogs; silent-run monitoring; stale locks | Pending |
 | 04 | Decision retention and notifications | Retention deadlines and notification delivery are separate reasons | Retention pending; archive delivery [#17475](https://github.com/paperclipai/paperclip/pull/17475) merged after exact-head 5/5 reviews and passing current CI |
-| 05 | Decision expiry and interrupted effects | Expiry, effect recovery, continuation recovery | Continuations [#17478](https://github.com/paperclipai/paperclip/pull/17478), expiry [#17479](https://github.com/paperclipai/paperclip/pull/17479), and effects [#17482](https://github.com/paperclipai/paperclip/pull/17482) await fresh current-head gates; target invalidation review repair remains in progress |
+| 05 | Decision expiry and interrupted effects | Expiry, effect recovery, continuation recovery | Continuations [#17478](https://github.com/paperclipai/paperclip/pull/17478) merged; expiry [#17479](https://github.com/paperclipai/paperclip/pull/17479), effects [#17482](https://github.com/paperclipai/paperclip/pull/17482), and targets [#17486](https://github.com/paperclipai/paperclip/pull/17486) await current-head review/CI gates |
 
 | 06 | Tool connection health | Configuration/use activation and defined proactive health deadlines | Pending |
 | 07 | Secret proposals, tool reviews, gateway tokens | Separate expiry/scrub/recovery owners | Slices 02–07 merged: [secret proposals](https://github.com/paperclipai/paperclip/pull/17446), [credentials](https://github.com/paperclipai/paperclip/pull/17450), [review expiry](https://github.com/paperclipai/paperclip/pull/17453), [approved recovery](https://github.com/paperclipai/paperclip/pull/17454), [interrupted claims](https://github.com/paperclipai/paperclip/pull/17458), [projection](https://github.com/paperclipai/paperclip/pull/17468) |
@@ -489,3 +489,41 @@ Eight slices are merged after archive delivery #17475. Slice 09 now reconciles
 with its exact squash `5785090ff1`; all 31 independent master files are preserved.
 The 97 decision/startup/deadline cases and server types/build pass after the
 Runner vendor rebuild. Fresh master-target CI and reviews remain required.
+
+
+
+
+## Slice 10: decision TTL expiry
+
+The TTL implementation now includes parent continuation repairs from `5f96892a58`.
+The merge preserves both the expiry owner and per-decision effect ownership.
+See [decision TTL expiry](../idle-decision-expiry.md). Creation and bundle writes
+join the same notification helper; an indexed minimum open expiry drives work.
+The combined tick opts out of TTL selection without removing target invalidation
+or effect recovery. Expiry-on-use remains enforced, including exact equality.
+Bounded passes retain a fair expiry/ID cursor and stop between candidates.
+
+All 103 selected tests pass after the merge, including fourteen TTL worker cases.
+Migration replay and a 40,000-row history query probe pass (two buffers).
+Final workspace typecheck/build and fresh PR CI/review remain required.
+The parent continuation PR is awaiting fresh review/CI on `5f96892a58`, with both
+initial findings repaired and resolved. The full inventory remains in scope.
+
+Slice 10 review repair: configured batch bounds, one-second successful overdue
+continuations and atomic expiration/activity settlement pass all three previously
+failing real PostgreSQL regressions. All 129 affected expiry/continuation/archive/
+startup/deadline cases, server types/build and snapshot drift pass. Own concurrent
+index was regenerated as `0389_brave_hulk.sql`, preserving parent history. The
+initial startup-reconciliation assertion failure and corrected boundary are
+recorded in the owning behavior audit. Latest-head CI/reviews remain required.
+
+Final slice 10 parent integration passes 130 expiry/decision/archive/startup/
+deadline cases, server types/build and migration replay. The parent continuation
+coalescing and deterministic cross-pool contention regression remain intact.
+The archive parent now targets master after projection #17468 merged. Fresh
+current-head reviews and CI remain required in dependency order.
+
+Slice 10 creation signal follow-up: single and bundle creation now notify expiry
+only through the central owner. Terminal updates still signal continuation. Both
+real regressions failed before repair; all 117 current expiry/decision/startup/
+deadline cases, server types and build pass. Fresh CI/reviews remain required.

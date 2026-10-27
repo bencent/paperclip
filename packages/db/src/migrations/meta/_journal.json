@@ -2714,8 +2714,15 @@
     {
       "idx": 389,
       "version": "7",
-      "when": 1793141304078,
-      "tag": "0389_panoramic_red_ghost",
+      "when": 1793138457589,
+      "tag": "0389_brave_hulk",
+      "breakpoints": true
+    },
+    {
+      "idx": 390,
+      "version": "7",
+      "when": 1793142723319,
+      "tag": "0390_dizzy_electro",
       "breakpoints": true
     }
   ]
