@@ -913,8 +913,8 @@ product, cleanup, feedback and trace checks still fail qualification.
 
 ### Hosted report dependencies
 
-The trusted report job keeps a frozen dependency install. When its authorized
-worker source equals the workflow revision, it restores the resolved lock from
-the credential-free lock job by artifact ID and verifies its SHA-256 first.
-A report for a different manual target uses the trusted workflow lock instead;
-that target cannot choose dependencies for the privileged report process.
+The trusted report job keeps a frozen dependency install. Its separate,
+credential-free lock job always resolves the trusted workflow revision,
+including campaigns that test a different manual target. The report downloads
+that lock by artifact ID and verifies its source, file shape and SHA-256 first.
+The worker target cannot choose dependencies for the privileged report process.

@@ -66,7 +66,7 @@ describe("trusted reporting lock restoration", () => {
         if (variant === "extra-file") await writeFile(path.join(lockDirectory, "unexpected"), "extra");
         const result = spawnSync("bash", ["-c", `git() { printf '%s\\n' "$MOCK_CHECKOUT_SHA"; }\n${script}`], {
           cwd: directory, encoding: "utf8", env: { ...process.env, RUNNER_TEMP: directory,
-            GITHUB_SHA: queuedSha, TARGET_SHA: variant === "foreign-source" ? advancedSha : queuedSha,
+            GITHUB_SHA: queuedSha, REPORT_LOCK_SOURCE_SHA: variant === "foreign-source" ? advancedSha : queuedSha,
             MOCK_CHECKOUT_SHA: variant === "wrong-checkout" ? advancedSha : queuedSha,
             EXPECTED_LOCK_SHA256: createHash("sha256").update(content).digest("hex") },
         });
