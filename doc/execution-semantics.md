@@ -2451,3 +2451,9 @@ retain a process-wide key cache. Each later operation reads the configured key
 again, and a recovery read never creates a missing key. Ciphertext format and
 company/run/part binding stay the same. Migration 0385 follows current master and
 remains idempotent for test databases that already installed an earlier preview.
+
+Expired remote recovery considers the complete active-run inventory supplied by
+the orphan sweep. It does not truncate that inventory at 100 rows: blocked issue
+locks can retain expired owners across sweeps, and must not starve later valid
+runners. This remains one scoped query and performs no checkpoint query when
+that inventory is empty. It does not scan retained completed history.
