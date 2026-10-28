@@ -77,9 +77,6 @@ export function useNativeRunTranscripts(runs: readonly NativeRunTranscriptSource
     const row = liveRunEvent(event);
     if (!row) return;
     const cursor = sequence(runId);
-    // Native publication notifications carry a committed sequence without its
-    // PRP body. Catch up through that row even when the sequence is consecutive;
-    // a notification must never replace a complete historical or streamed row.
     const envelope = row.payload?.prpEvent;
     const hasTranscriptBody = envelope !== null && typeof envelope === "object" && !Array.isArray(envelope);
     if (!hasTranscriptBody) cursor.requireHistory(row.seq);
@@ -122,8 +119,6 @@ export function useNativeRunTranscripts(runs: readonly NativeRunTranscriptSource
 
     const refreshRun = async (run: NativeRunTranscriptSource) => {
       if (cancelled || historyReadsRef.current.has(run.id)) return;
-      // Live catch-up belongs to this run. Restarting the whole effect would
-      // abort slow paginated reads for unrelated historical runs on every item.
       pendingRefresh.delete(run.id);
       window.clearTimeout(timers.get(run.id));
       timers.delete(run.id);
@@ -150,9 +145,6 @@ export function useNativeRunTranscripts(runs: readonly NativeRunTranscriptSource
         }
         // Commit this run's cursor with its rows. A slow sibling must neither
         // hold its readiness hostage nor stall live polling for this run.
-        // A complete filtered scan covers matching rows through the committed
-        // sequence known before the request, including excluded activity. A
-        // notification arriving during the read still requires later catch-up.
         const coveredCursor = run.conversationOnly ? Math.max(cursor, observedBeforeRead) : cursor;
         cursorByRunRef.current.set(run.id, coveredCursor);
         sequence(run.id).confirm(coveredCursor);
@@ -201,8 +193,6 @@ export function useNativeRunTranscripts(runs: readonly NativeRunTranscriptSource
     };
     for (const run of nativeRuns) {
       refreshByRunRef.current.set(run.id, (force = false) => {
-        // A terminal notification during a read requires one subsequent read;
-        // sequence-bearing notifications are covered by needsCatchup instead.
         if (force) pendingRefresh.add(run.id);
         void refreshRun(run);
       });

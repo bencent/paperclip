@@ -1,7 +1,5 @@
 import type { Query, QueryClient } from "@tanstack/react-query";
 
-/** Reconcile after the server resumes delivery. An older in-flight read cannot
- * satisfy that boundary; queue one follow-up without cancelling the old read. */
 export function createLiveQueryRecovery(client: QueryClient, isCurrent: () => boolean) {
   const waiting = new WeakSet<Query>();
   return () => {

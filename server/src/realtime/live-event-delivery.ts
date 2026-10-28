@@ -12,9 +12,6 @@ interface Socket {
   close(code?: number, reason?: string): void;
 }
 
-/** One delivery boundary per authorized connection. Interests are a work filter,
- * never an authorization grant. No source event or producer state is mutated.
- */
 export function createLiveEventDelivery(input: {
   socket: Socket;
   authorize(event: LiveEvent): Promise<LiveEvent | null>;
@@ -83,7 +80,6 @@ export function createLiveEventDelivery(input: {
     if (!id) return null;
     const now = Date.now();
     if (now - (activityAt.get(id) ?? -Infinity) < 1_000) return null;
-    // Bound metadata for runs that vanished without a terminal event.
     if (activityAt.size >= LIVE_DELIVERY_MAX_ITEMS) activityAt.delete(activityAt.keys().next().value!);
     activityAt.set(id, now);
     return { ...event, type: "heartbeat.run.activity", payload: { runId: id, agentId: event.payload.agentId,
@@ -97,16 +93,10 @@ export function createLiveEventDelivery(input: {
         const item = queued.shift()!;
         try {
           if (item.epoch !== epoch || !wants(item.event)) continue;
-          // A small queue can still stall on its first permission/redaction
-          // read. Close so the browser reconnects and catches up, even if ping
-          // frames remain healthy. The underlying read may finish later; this
-          // disposed connection accepts no more work and cannot send its result.
           pendingReadTimer = setTimeout(closeBacklog, CONGESTION_DEADLINE_MS);
           pendingReadTimer.unref?.();
           const visible = await input.authorize(item.event);
           if (!visible || item.epoch !== epoch || !wants(item.event) || !isOpen()) continue;
-          // Transcript/activity events cannot produce toasts. Avoid a separate
-          // business lookup for each output chunk.
           const decorated = transcript(visible) || visible.type === "heartbeat.run.activity"
             ? visible : await input.decorate(visible);
           if (item.epoch !== epoch || !wants(item.event) || !isOpen()) continue;
@@ -122,10 +112,6 @@ export function createLiveEventDelivery(input: {
         } catch (error) {
           if (!isOpen()) continue;
           input.onError(error);
-          // A failed authorization/read creates a delivery gap. Never advertise
-          // healthy streaming while silently discarding an authorized transcript.
-          // Older clients still poll their canonical history. Keep their
-          // existing skip-and-continue behavior on a failed permission read.
           if (negotiated) overflow();
         } finally {
           if (pendingReadTimer) clearTimeout(pendingReadTimer);
@@ -154,17 +140,12 @@ export function createLiveEventDelivery(input: {
         socket.close(1008, "invalid run interests"); return;
       }
       negotiated = true;
-      // An unrelated view can replace its interests before a congested socket
-      // has accepted the gap notice. Only a revision following a sent notice
-      // can acknowledge catch-up; interest churn must not erase a silent gap.
       const unnotifiedGap = needsResync && notifiedRevision !== revision;
       revision = Number(message.revision);
       interests = new Set(message.runIds);
       needsResync = unnotifiedGap;
       if (control({ type: "live.subscribed", version: 1, revision })) {
         resync();
-        // Acknowledging new interests does not settle an old permission or
-        // decoration read. Preserve its original deadline until drain finishes.
         if (!needsResync && !draining && (socket.bufferedAmount ?? 0) < LIVE_DELIVERY_MAX_BYTES / 2 && congestionTimer) {
           clearTimeout(congestionTimer); congestionTimer = undefined;
         }

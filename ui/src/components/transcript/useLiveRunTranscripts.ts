@@ -19,8 +19,6 @@ import {
 
 const LOG_POLL_INTERVAL_MS = 2000;
 const LOG_READ_LIMIT_BYTES = 256_000;
-// Older servers do not acknowledge interests. Keep their existing fallback;
-// negotiated healthy streaming uses only explicit catch-up reads.
 const REALTIME_FALLBACK_POLL_INTERVAL_MS = 30_000;
 const EMPTY_RUN_LOG_CHUNKS: RunLogChunk[] = [];
 // Retained transcript payload budget for full task views. A byte budget (rather
@@ -153,12 +151,10 @@ export function useLiveRunTranscripts({
   const requestCatchUp = (runId: string) => {
     if (gapPendingRef.current.has(runId)) return;
     gapPendingRef.current.add(runId);
-    // Let an existing page finish; its persisted cursor decides whether another
-    // read is needed. Cancelling it for a live gap can discard useful history.
     refreshByRunRef.current.get(runId)?.();
   };
   const bindLog = (runId: string, store: unknown, ref: unknown): "same" | "changed" | "stale" => {
-    if (typeof ref !== "string" || !ref) return "same"; // Older servers omit stream identity.
+    if (typeof ref !== "string" || !ref) return "same";
     const identity = `${typeof store === "string" ? store : ""}:${ref}`;
     const prior = logIdentityRef.current.get(runId);
     if (prior === identity) return "same";
@@ -533,8 +529,6 @@ export function useLiveRunTranscripts({
 
     for (const run of readableRuns) {
       refreshByRunRef.current.set(run.id, (force = false) => {
-        // A terminal notification has no source sequence. Finish the current
-        // page, then read once more without restarting any sibling's history.
         if (force) { pendingRefresh.add(run.id); missingTerminalLogRunIdsRef.current.delete(run.id); }
         void readRunLog(run);
       });

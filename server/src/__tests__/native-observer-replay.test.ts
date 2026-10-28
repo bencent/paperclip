@@ -37,7 +37,7 @@ const fixturePayloads = [
   { eventType: "item.completed", payload: { kind: "agentMessage", item: { id: "answer", text: output } } },
 ];
 const fixture = createHash("sha256").update(JSON.stringify(fixturePayloads)).digest("hex");
-const expectedDeliveries = fixturePayloads.length; // Every committed row, including deltas, reaches interested viewers.
+const expectedDeliveries = fixturePayloads.length;
 
 describe("native event replay observation evidence", () => {
   let temporary: Awaited<ReturnType<typeof startRecoveryPostgres>>;

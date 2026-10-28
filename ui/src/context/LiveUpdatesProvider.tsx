@@ -187,7 +187,6 @@ export function useTaskRunLiveUpdates(scope: {
 const subscribeNoop = () => () => {};
 const disconnectedSnapshot = () => DISCONNECTED_TRANSCRIPT_STREAM;
 
-/** Install the listener before advertising interest, then catch up after ACK. */
 export function useTranscriptLiveStream(runIds: readonly string[], options: { companyId?: string | null; enabled?: boolean }, handler: CompanyLiveEventHandler) {
   const subscription = useContext(LiveEventSubscriptionContext);
   const { visible } = usePageVisibility();
@@ -2223,8 +2222,6 @@ export function LiveUpdatesProvider({ children }: { children: ReactNode }) {
           const parsed = JSON.parse(raw) as LiveEvent;
           if (transcripts.receive(parsed, recoverQueries)) {
             if ((parsed as { type: string }).type === "live.resync") {
-              // Overflow can also drop lifecycle events; refresh active views,
-              // while transcript consumers catch up after the new interest ACK.
               void queryClient.invalidateQueries({ type: "active" }, { cancelRefetch: false });
             }
             return;

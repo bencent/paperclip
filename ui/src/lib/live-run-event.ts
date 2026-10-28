@@ -1,6 +1,5 @@
 import type { HeartbeatRunEvent, LiveEvent } from "@paperclipai/shared";
 
-/** Browser delivery uses the canonical run sequence, never the company socket ID. */
 export function liveRunEvent(event: LiveEvent): HeartbeatRunEvent | null {
   if (event.type !== "heartbeat.run.event") return null;
   const p = event.payload;

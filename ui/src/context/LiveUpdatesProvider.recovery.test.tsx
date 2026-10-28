@@ -120,8 +120,6 @@ describe("LiveUpdatesProvider connection recovery", () => {
     if (pending) pollRead.mockImplementationOnce(() => new Promise(resolve => { release = resolve; }));
     await deliver("live.resync", { revision: socket.sent.at(-1)!.revision });
     expect(pollRead).toHaveBeenCalledOnce();
-    // The server is still dropping lifecycle events until it applies the new
-    // interests. A run starts after the older empty read's snapshot.
     const next = [{ id: "new-run", status: "running" }];
     pollRead.mockResolvedValue(next);
     await deliver("live.subscribed", { revision: socket.sent.at(-1)!.revision });

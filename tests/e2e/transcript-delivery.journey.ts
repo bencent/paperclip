@@ -1,8 +1,6 @@
 import { expect, test, type WebSocket } from "@playwright/test";
 import { json } from "./agent-chat.shared";
 
-// The runner is real; Codex is the existing deterministic app-server fixture.
-// This qualifies browser delivery and terminal catch-up, not the Codex service.
 test("native transcript survives two views and reload through negotiated streaming", async ({ page, context, request }, info) => {
   test.setTimeout(120_000);
   await page.addInitScript(() => {
@@ -54,8 +52,6 @@ test("native transcript survives two views and reload through negotiated streami
     await expect.poll(async () => (await json(await request.get(`/api/companies/${company.id}/issues`))).length).toBe(1);
     const [issue] = await json(await request.get(`/api/companies/${company.id}/issues`));
     const route = `/${company.issuePrefix}/issues/${issue.identifier}`;
-    // A hard navigation destroys the previous JavaScript realm; Playwright
-    // does not report its WebSocket close consistently. Count this document.
     activeConnections.clear();
     frames.length = 0;
     await page.goto(route);
@@ -73,9 +69,9 @@ test("native transcript survives two views and reload through negotiated streami
     };
     await expect.poll(subscribed).toBe(true);
     await expect(page.getByText("STREAM-42: waiting for the final answer.", { exact: false }).first()).toBeVisible();
-    await page.waitForTimeout(2_000); // Let initial history requests settle.
+    await page.waitForTimeout(2_000);
     const healthyReads = transcriptReads;
-    await page.waitForTimeout(2_500); // Exceed the 2-second polling fallback.
+    await page.waitForTimeout(2_500);
     const healthyPollingReads = transcriptReads - healthyReads;
     expect(healthyPollingReads).toBe(0);
     expect(activeConnections.size).toBe(1);
@@ -88,8 +84,6 @@ test("native transcript survives two views and reload through negotiated streami
     await expect.poll(subscribed).toBe(true);
     const beforeReconnect = connections;
     await context.setOffline(true);
-    // Chromium offline emulation leaves existing WebSockets open. Close only
-    // the real presentation transport; application reconnect/catch-up is intact.
     await page.evaluate(() => (window as unknown as { closeTranscriptTransport(): void }).closeTranscriptTransport());
     await page.waitForTimeout(1_000);
     await context.setOffline(false);
@@ -113,7 +107,6 @@ test("native transcript survives two views and reload through negotiated streami
     await expect(eventDetails.getByText("STREAM-42: The launch has two stages.", { exact: false }).first()).toBeVisible();
     const eventsRoute = `**/api/heartbeat-runs/${runId}/events?*`;
     const logRoute = `**/api/heartbeat-runs/${runId}/log?*`;
-    // Present a real history read failure before any event or shell rows hydrate.
     await page.route(eventsRoute, route => route.fulfill({ status: 503, json: { error: "History temporarily unavailable" } }));
     await page.route(logRoute, async route => {
       const response = await route.fetch();

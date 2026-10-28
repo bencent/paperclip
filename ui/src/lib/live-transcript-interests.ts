@@ -4,7 +4,6 @@ export interface TranscriptStreamState { healthy: boolean; epoch: number; subscr
 export const DISCONNECTED_TRANSCRIPT_STREAM: TranscriptStreamState = { healthy: false, epoch: 0, subscribedRunIds: new Set() };
 interface Sender { send(data: string): void }
 
-/** Shared by every consumer in one company connection. No execution authority. */
 export class LiveTranscriptInterests {
   readonly #counts = new Map<string, number>();
   readonly #listeners = new Set<() => void>();
@@ -32,8 +31,6 @@ export class LiveTranscriptInterests {
     const message: LiveDeliveryClientMessage = { type: "live.interests", version: 1, revision: ++this.#revision,
       runIds: [...this.#counts.keys()].sort().slice(0, 1_000) };
     this.#sentRunIds = message.runIds;
-    // Unchanged interests remain subscribed while the replacement is pending.
-    // Newly acquired interests become healthy only after their own ACK.
     this.#subscribedRunIds = new Set(this.#sentRunIds.filter(id => this.#subscribedRunIds.has(id)));
     this.#publish(this.#snapshot.healthy);
     this.#send(message);
@@ -72,14 +69,10 @@ export class LiveTranscriptInterests {
     } else if (frame.type === "live.subscribed" && frame.revision === this.#revision && this.#acknowledged !== frame.revision) {
       this.#acknowledged = frame.revision;
       this.#subscribedRunIds = new Set(this.#sentRunIds);
-      // The protocol bounds one connection to 1,000 interests. Keep HTTP
-      // fallback available when a view exceeds that limit.
       this.#publish(this.#counts.size <= 1_000);
       if (this.#recovering) { this.#recovering = false; onRecoveryAcknowledged?.(); }
     } else if (frame.type === "live.resync" && Number.isSafeInteger(frame.revision)
       && Number(frame.revision) > this.#lastResyncRevision && Number(frame.revision) <= this.#revision) {
-      // A real gap can precede an in-flight replacement ACK. Unchanged interests
-      // still need catch-up, even when the notice names the earlier revision.
       this.#lastResyncRevision = Number(frame.revision);
       this.#recovering = true;
       this.#subscribedRunIds = new Set();

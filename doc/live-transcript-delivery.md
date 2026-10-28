@@ -25,6 +25,8 @@ An unchanged run stays healthy while unrelated interests change. New interests
 wait for an acknowledgement that includes them; only connection changes or an
 explicit resynchronization advance the shared recovery generation. This avoids
 aborting existing readers when another view starts or stops watching a run.
+Views exceeding the 1,000-interest protocol limit retain HTTP fallback for
+interests that cannot be advertised.
 
 All mounted consumers share the existing company connection. Interests are
 reference counted: removing one of two views of the same run does not unsubscribe
@@ -148,3 +150,31 @@ requests canonical history for a signal not yet covered by its persisted cursor,
 including consecutive sequences. Complete live rows still merge directly without
 recurring history reads. Both development and production page variants use this
 behavior; their regressions fail on the preceding merge and pass after the fix.
+
+## Recovery reads and plugin delivery
+
+Resynchronization can also discard lifecycle events used by application lists.
+Those views refresh after the replacement interest acknowledgement, when the
+server has resumed delivery. An older in-flight query cannot satisfy that
+boundary. One follow-up waits for it without cancelling the useful older read.
+The follow-up checks the current company, connection, visibility and query cache
+identity. Ordinary interest acknowledgements add no application refresh.
+
+The five-second delivery deadline also covers an authorization, redaction or
+decoration read that stalls before a queue reaches its bounds. Ping traffic and
+interest revisions cannot reset that deadline. Closing disposes queued work and
+rejects late results; the one already-started dependency read may still finish.
+A legacy browser retains its existing skip-and-poll handling of a rejected read.
+Transcript and activity events skip toast decoration and its business lookup.
+
+Plugin run notifications share the bounded queue and canonical structural,
+current-user and registered-secret redaction after their existing scope checks.
+This work belongs to the active recipient, never the producer. Plugins do not
+poll canonical history. Any failed delivery, backlog closure or subscription
+timeout sends one content-free stream error and removes the subscription.
+Disposal suppresses late notifications and new lookups. The error ends plugin
+delivery without changing the underlying execution or recorded run status.
+
+Explanatory code comments introduced by this slice are kept in this document,
+as required by the contribution guide. Vitest environment and scoped lint
+directives remain because they configure test execution and analysis.

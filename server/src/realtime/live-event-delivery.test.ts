@@ -90,7 +90,6 @@ it("keeps an unsent gap notice through unrelated interest changes after the sock
     expect(f.frames.some(frame => frame.type === "live.resync")).toBe(false);
     await vi.advanceTimersByTimeAsync(4_000);
     f.socket.bufferedAmount = 0;
-    // Another view opens after output was dropped. This is not a gap ACK.
     f.subscribe(["run-1", "run-2"], 2);
     expect(f.frames.at(-1)).toMatchObject({ type: "live.resync", revision: 2 });
     expect(f.delivery.metrics().needsResync).toBe(true);

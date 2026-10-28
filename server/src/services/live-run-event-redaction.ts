@@ -5,7 +5,6 @@ import { redactEventPayload } from "../redaction.js";
 import { instanceSettingsService } from "./instance-settings.js";
 import { createRunSecretRedactionRegistry } from "./run-secret-redaction.js";
 
-/** Read-time redaction at an authorized recipient, never on the producer path. */
 export function createLiveRunEventRedactor(db: Db) {
   const settings = instanceSettingsService(db);
   const redactions = createRunSecretRedactionRegistry(db);

@@ -1,4 +1,3 @@
-/** Presentation cursors only. A streamed row never advances persisted history. */
 export class TranscriptSequence {
   observed = 0;
   persisted = 0;

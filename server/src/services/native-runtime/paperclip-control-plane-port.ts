@@ -287,9 +287,6 @@ export class PaperclipControlPlanePort implements ControlPlanePort {
     this.#assertActive(options);
     if (persisted.disposition === "committed") {
       try {
-        // Stream the committed, redacted row through normal delivery authority.
-        // Publication reconciliation still recognizes only its safe event types;
-        // transcript readers also need deltas without polling canonical history.
         publishLiveEvent({
           companyId: this.#binding.companyId,
           type: "heartbeat.run.event",
@@ -305,8 +302,6 @@ export class PaperclipControlPlanePort implements ControlPlanePort {
           },
         });
       } catch {
-        // Presentation must not reject a committed receipt or skip its effects.
-        // Reconnect, sequence gaps and terminal catch-up recover missed rows.
       }
       await this.#onCommittedEvent?.(event);
     } else {

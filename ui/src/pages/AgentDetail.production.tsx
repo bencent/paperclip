@@ -3857,8 +3857,6 @@ export function LogViewer({ run, adapterType }: { run: HeartbeatRun; adapterType
     setEvents(previous => {
       const merged = mergeRunEvents(previous, rows);
       if (!isLive && !wasLiveRef.current) return merged;
-      // Explicit history pages remain available while the automatic live tail
-      // stays bounded. Catch-up must not advance the user's history cursor.
       const retainedThrough = Math.max(200, retainedEventHistoryThroughRef.current);
       const prefix = merged.filter(row => row.seq <= retainedThrough);
       const tail = merged.filter(row => row.seq > retainedThrough);
@@ -3904,8 +3902,6 @@ export function LogViewer({ run, adapterType }: { run: HeartbeatRun; adapterType
     appendEvents([row]);
   });
 
-  // History paging and delivery recovery have separate cursors: a recovered
-  // live tail cannot consume pages the user has not chosen to retain.
   useEffect(() => {
     setLoadingMoreEvents(false);
     if (!visible) return;
@@ -3927,15 +3923,11 @@ export function LogViewer({ run, adapterType }: { run: HeartbeatRun; adapterType
         const initializesHistory = eventsReadCursorRef.current === 0;
         const rows = await readTranscriptRequest(signal => heartbeatsApi.events(run.id, cursor, 1000, { signal }), abort.signal);
         if (cancelled) return;
-        // If negotiation replaced the first read, retain its first history
-        // page before draining the live tail with the independent cursor.
         appendEvents(rows, !catchup || initializesHistory);
         const next = Math.max(cursor, rows.at(-1)?.seq ?? cursor);
         eventsCatchupCursorRef.current = Math.max(eventsCatchupCursorRef.current, next);
         eventSequenceRef.current.confirm(next);
         if (catchup) {
-          // Each request remains bounded; only a known recovery drains further.
-          // A short page settles this pass even if no live row supplied a target.
           if (rows.length === 1000 && next > cursor) pendingRefresh = true;
         }
         if (!catchup || initializesHistory) {
@@ -3958,8 +3950,6 @@ export function LogViewer({ run, adapterType }: { run: HeartbeatRun; adapterType
     };
     refreshEventsRef.current = () => { void read(false, wasLiveRef.current); };
     loadMoreEventsRef.current = () => { void read(failedRead?.requested ?? true, failedRead?.catchup ?? false); };
-    // Reconnection, resynchronization and terminal status all receive one
-    // catch-up pass; healthy consecutive delivery does not schedule HTTP reads.
     void read(false, wasLiveRef.current && (stream.healthy || eventsReadCursorRef.current > 0));
     return () => {
       cancelled = true; refreshEventsRef.current = null; loadMoreEventsRef.current = null;
@@ -4060,7 +4050,6 @@ export function LogViewer({ run, adapterType }: { run: HeartbeatRun; adapterType
     setLogError(null);
   }, [run.id, run.logRef, setLogOffset]);
 
-  // Live catch-up drains all pages; historical runs retain explicit pagination.
   useEffect(() => {
     if (!visible) return;
     if (!run.logRef && !shouldPollShellLog) { setLogLoading(false); return; }

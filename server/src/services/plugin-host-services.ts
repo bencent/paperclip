@@ -3634,9 +3634,6 @@ export function buildHostServices(
             decorate: async event => event,
             onError: err => {
               logger.warn({ err, pluginId, runId: run.id }, "plugin session event redaction failed");
-              // Plugins do not poll canonical history like legacy browsers. A
-              // delivery gap must finish their stream, even if it lost the final
-              // status. Never forward the failed payload or change the run.
               failDelivery();
             },
           });

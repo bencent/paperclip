@@ -175,8 +175,6 @@ describe("live-event run read boundaries", () => {
     const actor: AuthorizationActor = { type: "agent", agentId: agent.id, companyId, source: "agent_key", onBehalfOfUserId: viewer };
     const access = authorizationService(db);
     const transcriptAllowed = async () => (await access.decide({ actor, action: "company_scope:read", resource: { type: "company", companyId } })).allowed;
-    // The task is readable; it is the additional HTTP transcript permission
-    // that must prevent native text, tool detail and legacy log delivery.
     expect(await getHeartbeatRunReadDecisions(db, access, actor, [run])).toEqual([true]);
     expect(await transcriptAllowed()).toBe(false);
     const server = createServer();
@@ -209,7 +207,6 @@ describe("live-event run read boundaries", () => {
       await db.update(agents).set({ permissions: {} }).where(eq(agents.id, agent.id));
       expect(await transcriptAllowed()).toBe(true);
       expect((await batch()).filter(message => ["heartbeat.run.event", "heartbeat.run.log"].includes(message.type))).toHaveLength(2);
-      // A grant made after connection is not cached for the socket lifetime.
       await db.update(agents).set({ permissions: restrictedPermissions }).where(eq(agents.id, agent.id));
       expect(await transcriptAllowed()).toBe(false);
       expect((await batch()).filter(message => ["heartbeat.run.event", "heartbeat.run.log"].includes(message.type))).toEqual([]);

@@ -1600,3 +1600,15 @@ and journal entry is preserved; snapshots 0389–0393 remain. Migration checks,
 server typecheck and all 13 warm-owner variants pass. No runtime recovery
 behavior changes in this integration, and fresh exact-head CI and reviews
 are required. No hosted fixture, deployment, budget or access changes.
+
+### Transcript contribution-rule review
+
+The transcript review found explanatory code comments that conflict with the
+contribution guide. The 104 comments introduced by that slice are removed, and
+the useful ordering, deadline and plugin-delivery explanations are kept in
+`doc/live-transcript-delivery.md`. Existing comments and executable test/lint
+directives remain. Parsing every edited source before and after removal gives
+identical non-comment tokens. The six-file server delivery lane passes all 50
+cases, six affected UI suites pass all 91 cases, and token gates pass. No new
+test or runtime behavior is introduced; fresh exact-head CI and review remain
+required for the new transcript head.

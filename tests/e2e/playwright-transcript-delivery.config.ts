@@ -4,8 +4,6 @@ import path from "node:path";
 import { defineConfig } from "@playwright/test";
 import base from "./playwright.config";
 
-// Reuse the acceptance-only resolver hook. The installed provider otherwise
-// takes precedence over PATH; no production option or live credentials are used.
 const providerHome = fs.mkdtempSync(path.join(os.tmpdir(), "transcript-provider-"));
 const server = base.webServer as Exclude<typeof base.webServer, unknown[]>;
 export default defineConfig({

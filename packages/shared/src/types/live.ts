@@ -10,7 +10,6 @@ export interface LiveEvent {
   payload: Record<string, unknown>;
 }
 
-/** Additive delivery negotiation; neither interests nor revisions grant access. */
 export type LiveDeliveryClientMessage = { type: "live.hello"; version: 1; capabilities: string[] } | {
   type: "live.interests"; version: 1; revision: number; runIds: string[];
 };

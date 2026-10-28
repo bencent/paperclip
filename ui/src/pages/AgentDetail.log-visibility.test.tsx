@@ -98,7 +98,6 @@ it.each([LogViewer, ProductionLogViewer])("uses shared streaming and retains fal
   expect(messages.at(-1)?.runIds).toEqual([]);
 });
 
-// Rendering thousands of real event rows is part of this proof, not a five-second latency gate.
 it.each([LogViewer, ProductionLogViewer])("re-enables cancelled history paging after hiding and showing a completed run (%#)", async Viewer => {
   const visibility = vi.spyOn(document, "visibilityState", "get").mockReturnValue("visible");
   log.mockResolvedValue({ content: "", nextOffset: 0 });

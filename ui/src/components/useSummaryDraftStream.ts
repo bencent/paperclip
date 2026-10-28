@@ -202,7 +202,6 @@ export function useSummaryDraftStream(
         failed ||= sequenceRef.current.needsCatchup;
         if (!failed) gapPendingRef.current = false;
       } catch {
-        // A failed catch-up must retry even when the socket itself is healthy.
         failed = true;
       }
       if (!cancelled && (!stream.healthy || failed)) timer = window.setTimeout(() => void read(), LOG_POLL_INTERVAL_MS);

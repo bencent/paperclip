@@ -49,7 +49,6 @@ it("bounds presentation cost for the same output with zero, one, multiple and co
             peakItems = Math.max(peakItems, metrics.retainedItems);
             peakBytes = Math.max(peakBytes, metrics.retainedBytes);
           }
-          // Reproducible bursts permit healthy asynchronous authorization to drain.
           if (event.id % 16 === 0) await setImmediate();
         }
         await setImmediate();
