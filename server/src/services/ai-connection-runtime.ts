@@ -353,6 +353,12 @@ export async function prepareManagedAiRuntime(
         provider: { openrouter: { options: { apiKey: value, headers: OPENROUTER_ATTRIBUTION_HEADERS } } },
       });
       env.OPENCODE_DISABLE_PROJECT_CONFIG = "true";
+      // OpenRouter models are gateway-routed and may not be present in the
+      // local models.dev catalog (especially free or newly published models).
+      // The temporary runtime config registers the requested model; let the
+      // real OpenCode hello probe be authoritative instead of rejecting it
+      // during a stale/incomplete `opencode models` pre-flight scan.
+      env.OPENCODE_ALLOW_ALL_MODELS = "true";
     }
     if (!routing && input.binding.provider === "google" && harness === "gemini_local") {
       // Gemini headless CLI requires an explicit auth choice even with an API key.
