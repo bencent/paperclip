@@ -16,7 +16,8 @@ Do not mark an item done from a timer removal or a green check alone.
 | 02 | Remaining chat maintenance | Provider runtime discovery; voice reconciliation; milestones; wake notices; interaction continuations; terminal confirmations; GitHub recovery; Teams maintenance, separately by owner | Pending |
 | 03 | Run and task recovery | Orphan runs and active leases; shutdown workspace settlement; scheduled retries; queued runs; stranded assignments; resolved dependencies; task watchdogs; silent-run monitoring; stale locks | Pending |
 | 04 | Decision retention and notifications | Retention deadlines and notification delivery are separate reasons | Retention pending; archive delivery [#17475](https://github.com/paperclipai/paperclip/pull/17475) merged after exact-head 5/5 reviews and passing current CI |
-| 05 | Decision expiry and interrupted effects | Expiry, effect recovery, continuation recovery | Continuations [#17478](https://github.com/paperclipai/paperclip/pull/17478) merged; expiry [#17479](https://github.com/paperclipai/paperclip/pull/17479) merged; effects [#17482](https://github.com/paperclipai/paperclip/pull/17482), and targets [#17486](https://github.com/paperclipai/paperclip/pull/17486) await current-head review/CI gates |
+| 05 | Decision expiry and interrupted effects | Expiry, effect recovery, continuation recovery | Continuations [#17478](https://github.com/paperclipai/paperclip/pull/17478) merged; expiry [#17479](https://github.com/paperclipai/paperclip/pull/17479) merged; effects [#17482](https://github.com/paperclipai/paperclip/pull/17482) merged; targets [#17486](https://github.com/paperclipai/paperclip/pull/17486) merged |
+
 
 
 | 06 | Tool connection health | Configuration/use activation and defined proactive health deadlines | Pending |
@@ -31,6 +32,7 @@ Do not mark an item done from a timer removal or a green check alone.
 | 14 | Skill-version retention and native-harness backup expiration | Separate retention owners and existing retention guarantees | Pending |
 | 15 | Automatic database backups | Shared scheduling, actual backup deadlines, existing checkpoint contract | Pending |
 | 16 | Aggregate maintenance tick | Retire enabled and disabled branches after all constituent owners migrate | Pending |
+| 17 | Grok routine dispatch | Committed reservations and feature changes; prepared-only recovery | Slice 13 implemented, local verification in progress |
 
 ## Stack and verification contract
 
@@ -630,3 +632,177 @@ integrates that landed parent and all 21 independent master files. All 143 cases
 in its five complete suites pass. Its preceding CI shard interruption remains
 recorded in the owning effect-recovery audit; it is not a passing receipt. Fresh
 CI/reviews are required on the reconciled head.
+
+
+Slice 11 is [#17482](https://github.com/paperclipai/paperclip/pull/17482), head
+`a5b5994c1d`, based on #17479. It is attached and Greptile review was requested.
+Its CI is active with no failure in the latest snapshot. Slice 10's one
+serialized-job retry passed; all checks now pass at `63b58cc26f`, with Greptile
+5/5 and no unresolved findings. The recorded original timeout remains part of
+its verification history.
+
+## Next owner audit: decision target invalidation
+
+Branch `codex/sleep-12-decision-target-invalidation` starts from #17482. No target
+migration is implemented or ready yet. This is the final responsibility inside
+the current combined decision sweep, separate from retention and notifications.
+
+Preserve its exact policy: only strict effect references count. A missing target
+or any cancelled target expires with `target_gone`. If all strict targets are
+done and at least one was not done in the saved proposal snapshot, expire with
+`target_completed`. Lenient decisions and proposals intentionally targeting
+already-done tasks remain open. Include secondary effect references through the
+existing `decisionEffectTargetIssueIds` helper. Do not duplicate provider/effect
+payload interpretation inside the scheduler or broaden invalidation to every
+updated timestamp. TTL validity remains separately enforced on use.
+
+The direct-writer audit found the main `issueService.update` boundary can enter
+done/cancelled and already owns an outer transaction. Release preserves an
+existing terminal status; checkout/adoption enter in-progress; conversation
+writers enter todo/in-progress/in-review; recovery writers enter blocked.
+Tree restoration explicitly excludes terminal snapshots. Administrative release
+only changes locks/assignment. Route aliases `issueRows` write source-trust or
+owner-notification metadata. Raw SQL updates found in issue/project privacy
+propagation change privacy only. These are audit findings, not a substitute for
+producer integration tests or final inspection.
+
+Three direct deletion paths need accounting: issue removal, routine dispatch
+failure cleanup, and company deletion. Routine creation is visible through its
+service while dispatch holds a separate transaction, so do not assume its failed
+issue could never have become a target. Company deletion currently encounters
+restricting decision/run references if decisions exist; do not silently fix or
+relax those foreign keys in this slice. Single-target links cascade on issue
+deletion, so an after-commit lookup through those links cannot identify deleted
+targets. Use pre-write intent and either preserve the affected decision scope or
+request a bounded startup-style scan for this rare path.
+
+A candidate design uses the existing coordinator's scoped hints: decision
+creation signals its decision ID; terminal issue writes signal their issue ID;
+deletion or unknown hints request a bounded full scan. Existing decision-target
+links select affected open rows; the domain helper computes invalidation from
+current targets and saved snapshots. Stable valid open decisions must become
+quiet after their finite reconciliation, even with long retention or no near TTL.
+No per-decision timer or new queue table is required.
+
+Keep scoped scan state in the owner, with bounded pages and fair rotation.
+Changes arriving during a scan must reset/requeue that scope without being lost
+when the admitted pass completes. Failed candidates retain retry debt while
+allowing later scopes to progress. Startup reconstructs all open targets from
+durable state; rollback and uncertain writes use the existing transaction
+protocol. `hasPending` must not perform passive SQL during drain. Shutdown must
+finish admitted expiry and leave later candidates for restart. A changed target
+can reopen before reconciliation; inspect current state rather than blindly
+expiring from the notification itself.
+
+Required tests include the actual issue update/removal producers, creation after
+cancellation, intentional done-target proposals, secondary targets, lenient
+history, no recurring SQL with valid open decisions, outer transactions,
+rollback, restart with deleted target links, failed expiry, concurrent scope
+changes, fair paging, drain/resume, and shutdown. Exercise relevant route/service
+consumers when adding notification calls to their existing transaction boundary.
+Do not remove the periodic target sweep before this coverage exists.
+
+
+## Slice 12 implementation: decision targets
+
+The target owner, scoped notification adapter, and audited producer calls are
+implemented. Startup reconstructs open targets; ordinary terminal writes select
+linked decisions; deletion requests a bounded full scan after cascading links.
+The aggregate decision scan is removed now that its four separate owners exist.
+See [target invalidation](../idle-decision-targets.md) for scope and policy.
+
+The combined real-database/consumer selection passes 233 tests. Workspace
+typecheck and build pass. The final target run also passes all 18 cases, including the additional
+same-scope concurrent-change regression (234 unique selected cases in total). No new table or migration is introduced. Existing
+indexes support both lookup shapes in the 40,000-row completed-history probe.
+
+Slice 11 #17482 has Greptile 5/5 at `a5b5994c1d` and no unresolved findings.
+Its first browser shard 3/8 failed in agent-chat fixture cleanup: cancelling a
+run hit a PostgreSQL lock timeout, and the following test saw the experimental
+flag left enabled. No CI retry has been used. Reproduce the two tests on the
+exact parent head before classifying a retry or repair. This parent is not yet
+claimed green. The full original inventory remains in scope.
+
+Slice 11 #17482 now has all checks passing at `a5b5994c1d`, Greptile 5/5,
+no unresolved findings, and no merge conflict. Its one browser-shard retry passed
+after both affected cases passed locally on the exact head (2/2). The original
+fixture-cleanup lock timeout remains documented in the PR.
+
+Slice 12 is #17486 at initial head `5062efb368`. Review found that deletion's
+absent hint could be dropped when the same outer transaction included a scoped
+hint. Both operation orders failed new regressions before the explicit `all`
+hint repair. The repaired target/TTL selection passes 34 cases. CI also exposed
+a TTL test race: passive-SQL measurement now joins already-admitted sweeps,
+without dropping unresolved recovery holds. Fresh CI/review remain required.
+
+The fresh master audit at `991c47bc6e` identified an additional recurring-server
+owner: the Grok routine dispatcher starts a one-second settings/dispatch scan
+when public MCP is configured, even when Grok is disabled. Include this in the
+full stack as slice 13, separately from decision retention. The disabled baseline
+issued three settings queries in 3.2 seconds. Its durable prepared dispatches,
+atomic claim, and existing uncertain-outcome policy must remain authoritative.
+
+Slice 12 review repair: deletion captures affected open decision IDs under an
+issue-row lock before links cascade. Ordinary cleanup without linked decisions
+and empty-company deletion no longer signal global work. PostgreSQL text cursors
+preserve microsecond precision. Four real regressions failed before repair;
+removing the new lock also failed a controlled concurrent-proposal test. All
+246 target/routine/decision/effect/expiry/startup/deadline cases and server
+types/build pass. The existing restrictive company-deletion FKs and explicit
+combined-service compatibility path remain documented. Fresh head gates required.
+
+
+Slice 12 final combined-sweep cleanup: the repository/package/SDK audit found no
+production consumer or public exposure of `decisionService.sweepExpired` after
+the final duty split. Removed that method, its cursor/flags/imports and the
+unneeded target-policy export. Its behavioral tests now use the four dedicated
+workers. Real isolation tests show TTL does not recover effects and effect
+recovery does not expire open decisions. All 248 cases in seven complete suites,
+server types and build pass after integrating parent `c304273b75`. This supersedes
+the earlier manual-caller compatibility claim. Both creation signals remain:
+expiry-only creation and scoped target invalidation. Fresh head gates required.
+
+
+Slice 11 merged at `c304273b75` → `e9e84bb8a1` after exact-head Greptile/Ponytail
+5/5 and all 58 checks passed or were neutral/skipped. Slice 12 normally merges
+that landed dependency and preserves four independent Runner E2E accounting
+files. All runtime and acceptance test sources are byte-identical to its tested
+`85ce6545bf` tree (248 cases, server types/build). Fresh final-head CI and reviews
+remain required after retargeting to master.
+
+## Slice 13: Grok routine dispatch
+
+The one-second idle scan is replaced with a shared-coordinator worker. The existing
+reservation and experimental-settings transactions notify it; the Grok service
+retains all authority, claims, delivery, and uncertainty handling. Prepared-only
+selection uses a concurrent partial index. The 21 lifecycle cases, 45 existing
+Grok cases, and 39 startup cases pass together (105). Workspace typecheck passes.
+See [Grok dispatch](../idle-grok-dispatch.md). Build, populated query proof, PR
+publication, and fresh review/CI remain required. Decision retention and every
+other pending inventory owner remain in scope.
+
+
+Slice 13 final local verification also passes all 154 affected settings cases
+(259 selected tests total), workspace typecheck, production build, migration
+checks/replay, and a generic-plan query probe with 40,000 completed dispatches.
+Both queries use the prepared-only partial index with six shared buffers,
+including the routine join. Remote CI/review remain required.
+
+
+Slice 13 normally integrates target parent `85ce6545bf`. Its Grok implementation
+is unchanged; migration 0391 is regenerated after the current parent's history.
+All 389 parent journal entries are preserved and five snapshots remain. All 273
+cases across nine complete dispatch/qualification/startup/deadline/settings
+suites, server types/build, schema drift, migration safety and fresh apply/replay
+pass. Prior browser fixture-cleanup failure evidence remains in its owning audit.
+Fresh current-head CI and Greptile/Ponytail are required before merge.
+
+
+Slice 12 merged `e6dff4b06f` → `8dfed893d8` after exact-head Greptile/Ponytail 5/5
+and all 58 checks passed or were neutral/skipped. One failed-job retry passed;
+the original CLI startup/ZIP timeouts and local startup limitation remain in its
+PR evidence. Slice 13 normally integrates that landed dependency and four
+independent Runner E2E accounting files. All runtime and acceptance sources match
+its tested/reviewed `679f523d78` tree; the 273-case, type/build and migration
+receipts retain their original revisions. Migration 0391 and all parent journal
+entries are unchanged. Fresh final-head CI and reviews required against master.
