@@ -1553,3 +1553,27 @@ logs still package after temporary-root deletion; malformed evidence cannot
 satisfy an outage grade. Two regressions fail before correction (38 other cases
 pass). Afterward all 96 focused qualification cases and E2E typecheck pass.
 These are qualification-evidence fixes, with no deployment or provider turn.
+
+### Sixth master integration and completed diagnostic retry
+
+The one diagnostic retry of server job 122535673841 passed as job
+122541891915 at 2026-10-28 00:01:54 UTC: all 20 expiry cases and 3,877 shard
+cases pass, with one skip. This is recovery evidence, not proof of the exact
+timing race; the original failure remains recorded above. No further unchanged
+retry is allowed for that head and job.
+
+Master `2adcde162e` adds migration 0391. The checkpoint migration is regenerated
+as `0392_daffy_guardsmen.sql`, with the same preview-idempotent DDL. Every
+master SQL file and journal entry is unchanged. Snapshots 0388–0392 remain.
+Migration checks pass after the sandbox denied TSX IPC on the first attempt.
+Server typecheck and all 13 warm-owner variants pass after integration. An
+initial test command used the wrong path and ran no tests; only the corrected
+invocation supplies the 13-case receipt. Fresh exact-head CI and review are
+still required. No hosted fixtures, access, budgets or deployment changed.
+
+All 118 cases in the nine-file qualification support lane and E2E typecheck
+pass after integration. The initial sandbox run had 117 passes and one cleanup
+failure because process identity inspection was denied. The permitted repeat
+passes the real inert process-tree case as well; a subsequent targeted process
+check finds no remaining fixture daemon. This is local process evidence, not a
+hosted harness or distinct deployed artifact upgrade.

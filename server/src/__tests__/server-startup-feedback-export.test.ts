@@ -348,7 +348,9 @@ vi.mock("../services/index.js", () => ({
     list: vi.fn(async () => ({ items: [], nextCursor: null })),
   })),
   decisionService: vi.fn(() => ({
-    sweepExpired: vi.fn(async () => ({ expired: 0 })),
+    sweepInvalidTargets: vi.fn(async () => ({ expired: 0 })),
+    decisionTargetsChanged: vi.fn(),
+    hasDecisionTargetWork: vi.fn(() => false),
     recoverEffects: vi.fn(async () => ({ resumed: 0 })),
     nextEffectRecoveryAt: vi.fn(async () => null),
     sweepTtlExpiry: vi.fn(async () => ({ expired: 0 })),
@@ -926,7 +928,8 @@ describe("startServer feedback export wiring", () => {
       expect(decisions.recoverEffects).toHaveBeenCalledTimes(1);
       expect(deliveryWorkRegisterMock.mock.calls.some(([queue]) => queue === DELIVERY_QUEUES.decisionEffectRecovery)).toBe(true);
       expect(deliveryWorkRegisterMock.mock.calls.some(([queue]) => queue === DELIVERY_QUEUES.decisionExpiry)).toBe(true);
-      expect(decisions.sweepExpired).toHaveBeenCalledWith(expect.any(Date), { includeContinuations: false, includeExpiry: false, includeEffects: false });
+      expect(decisions.sweepInvalidTargets).toHaveBeenCalledTimes(1);
+      expect(deliveryWorkRegisterMock.mock.calls.some(([queue]) => queue === DELIVERY_QUEUES.decisionTargets)).toBe(true);
     } finally {
       setIntervalSpy.mockRestore();
     }
@@ -966,6 +969,7 @@ describe("startServer feedback export wiring", () => {
       expect(deliveryWorkRegisterMock.mock.calls.some(([queue]) => queue === DELIVERY_QUEUES.decisionContinuation)).toBe(false);
       expect(deliveryWorkRegisterMock.mock.calls.some(([queue]) => queue === DELIVERY_QUEUES.decisionExpiry)).toBe(false);
       expect(deliveryWorkRegisterMock.mock.calls.some(([queue]) => queue === DELIVERY_QUEUES.decisionEffectRecovery)).toBe(false);
+      expect(deliveryWorkRegisterMock.mock.calls.some(([queue]) => queue === DELIVERY_QUEUES.decisionTargets)).toBe(false);
     } finally {
       setIntervalSpy.mockRestore();
     }
