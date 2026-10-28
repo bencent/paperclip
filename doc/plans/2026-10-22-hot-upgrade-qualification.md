@@ -1490,3 +1490,26 @@ failure because process identity inspection was denied. The permitted repeat
 passes the real inert process-tree case as well; a subsequent targeted process
 check finds no remaining fixture daemon. This is local process evidence, not a
 hosted harness or distinct deployed artifact upgrade.
+
+### Seventh master integration and fresh Linux source receipts
+
+Before this integration, server `1ff7bb44f4` passes all Actions checks and
+Greptile 5/5; its external review is still queued. Qualification `8dc921f773`
+and transcripts `49a8783e9b` pass all checks, have exact-head Greptile 5/5 and
+no open feedback. These heads cannot substitute for the new integrated heads.
+
+At server `1ff7bb44f4`, job 122549307215 passes all 938 native-executor cases
+(65.497 seconds). Job 122549306469 passes the native recovery lane with 115
+passes and five container-only skips. The fresh preparation, claim-lock and
+101-owner cases pass in 63.664, 3.961 and 3.824 seconds. The encrypted restore
+session guard is included in that suite. At transcripts `49a8783e9b`, job
+122549913643 passes all five run-read permission cases, including same-socket
+grant and revocation. The current duration partition places this file in
+server shard 11; the old shard-1 receipt does not prove it.
+
+Master `553a004926` adds migration 0392. Regeneration produces checkpoint
+`0393_elite_angel.sql` with unchanged idempotent DDL. Every master SQL file
+and journal entry is preserved; snapshots 0389–0393 remain. Migration checks,
+server typecheck and all 13 warm-owner variants pass. No runtime recovery
+behavior changes in this integration, and fresh exact-head CI and reviews
+are required. No hosted fixture, deployment, budget or access changes.
