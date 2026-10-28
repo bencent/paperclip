@@ -15,7 +15,7 @@ Do not mark an item done from a timer removal or a green check alone.
 | 01 | Custom-image setup expiry | Session writes, existing expiry, startup/retry/drain | [#17443](https://github.com/paperclipai/paperclip/pull/17443), merged after CI and passing reviews |
 | 02 | Remaining chat maintenance | Provider runtime discovery; voice reconciliation; milestones; wake notices; interaction continuations; terminal confirmations; GitHub recovery; Teams maintenance, separately by owner | Pending |
 | 03 | Run and task recovery | Orphan runs and active leases; shutdown workspace settlement; scheduled retries; queued runs; stranded assignments; resolved dependencies; task watchdogs; silent-run monitoring; stale locks | Pending |
-| 04 | Decision retention and notifications | Retention deadlines and notification delivery are separate reasons | Retention pending; archive delivery [#17475](https://github.com/paperclipai/paperclip/pull/17475) merged after exact-head 5/5 reviews and passing current CI |
+| 04 | Decision retention and notifications | Retention deadlines and notification delivery are separate reasons | Approval retention implemented in slice 14; final review/CI pending; other source retention pending; archive delivery [#17475](https://github.com/paperclipai/paperclip/pull/17475) merged after exact-head 5/5 reviews and passing current CI |
 | 05 | Decision expiry and interrupted effects | Expiry, effect recovery, continuation recovery | Continuations [#17478](https://github.com/paperclipai/paperclip/pull/17478) merged; expiry [#17479](https://github.com/paperclipai/paperclip/pull/17479) merged; effects [#17482](https://github.com/paperclipai/paperclip/pull/17482) merged; targets [#17486](https://github.com/paperclipai/paperclip/pull/17486) merged |
 
 
@@ -32,7 +32,8 @@ Do not mark an item done from a timer removal or a green check alone.
 | 14 | Skill-version retention and native-harness backup expiration | Separate retention owners and existing retention guarantees | Pending |
 | 15 | Automatic database backups | Shared scheduling, actual backup deadlines, existing checkpoint contract | Pending |
 | 16 | Aggregate maintenance tick | Retire enabled and disabled branches after all constituent owners migrate | Pending |
-| 17 | Grok routine dispatch | Committed reservations and feature changes; prepared-only recovery | Slice 13 implemented, local verification in progress |
+| 17 | Grok routine dispatch | Committed reservations and feature changes; prepared-only recovery | [#17490](https://github.com/paperclipai/paperclip/pull/17490) merged after exact-head 5/5 reviews and passing CI |
+| 18 | Abandoned import transfer spools | Creation/completion events, existing retention deadline, startup recovery | Pending; explicitly retained from the remaining-blocker checklist |
 
 ## Stack and verification contract
 
@@ -770,6 +771,7 @@ files. All runtime and acceptance test sources are byte-identical to its tested
 `85ce6545bf` tree (248 cases, server types/build). Fresh final-head CI and reviews
 remain required after retargeting to master.
 
+
 ## Slice 13: Grok routine dispatch
 
 The one-second idle scan is replaced with a shared-coordinator worker. The existing
@@ -806,3 +808,221 @@ independent Runner E2E accounting files. All runtime and acceptance sources matc
 its tested/reviewed `679f523d78` tree; the 273-case, type/build and migration
 receipts retain their original revisions. Migration 0391 and all parent journal
 entries are unchanged. Fresh final-head CI and reviews required against master.
+
+## Next owner audit: decision retention
+
+Slice 13 is [#17490](https://github.com/paperclipai/paperclip/pull/17490), head
+`706beb01f2`, based on the repaired target PR #17486 (`1bbfc69590`). It is
+attached and review was requested. The target PR now has fresh Greptile 5/5
+with its mixed-hint finding resolved; its fresh CI is still running. Grok's CI
+and review are running. No new readiness or merge claim is made.
+
+Branch `codex/sleep-14-decision-retention` starts from #17490. This section is
+an audit, not an implemented retention migration. The original full inventory
+remains the completion scope.
+
+The existing startup/tick retention function selects every active company,
+builds `attentionService.list({includeDismissed:true, all:true,
+allowUnscopedAll:true})`, then calls `autoArchive`. Notification delivery was
+already separated in slice 08. Retention itself is not just an expiry scan of
+`decision_retention`: `attentionService` materializes those records via
+`syncItems` while building the feed. An item never viewed in the UI still needs
+retention coverage. Removing the periodic feed build and looking only at existing
+retention rows would silently miss such sources.
+
+The auto-archive policy uses 90 days since source activity, `keep = false`, and
+no existing archive. The 30-day shelf default and per-queue shelf overrides are
+UI classification, not the automatic archive deadline. Keep these concepts
+separate. Preserve version CAS, actor columns, archiveVersion, notification
+outbox creation, and audit in the owning transaction. Manual archive/revive,
+keep/unkeep, and archive-proposal manifests are also producers of schedule
+changes; they must not require another unrelated source write to take effect.
+
+Current feed sources and eligibility dependencies observed in attention.ts:
+
+| Source | Activity timestamp / eligibility dependencies to audit |
+| --- | --- |
+| approval | Approval updatedAt; pending status; issue approval links |
+| issue_thread_interaction | Interaction updatedAt; pending status; issue and audience policy |
+| decision | Decision updatedAt; open status; current feed selection has a default 500-row cap |
+| join_request | Join updatedAt; pending_approval; matching company invite |
+| recovery_action | Recovery updatedAt; active/escalated; human owner and visible source issue |
+| blocker_attention | Prospective blockedTransitionAt or terminal blocker's updatedAt; dependency graph, liveness, monitor and unblock-owner state |
+| review | Issue updatedAt; in_review; human participant/assignee, pending approval, or stalled review liveness |
+| failed_run | finishedAt/updatedAt/createdAt; bounded-retry-exhaustion event; failed/timed_out; nonterminated agent; no newer run for that agent/task |
+| budget_alert | Incident updatedAt; current budget overview/window; hard threshold or observed >=85% |
+| agent_error_alert | Agent updatedAt; error status |
+
+`productivity_review` remains in the source-kind contract and retention origin
+resolver, but this inspected feed does not directly emit that kind. Do not invent
+a new producer or assume all enum values imply live rows. Failed-run attention
+has no simple age cutoff in `listAttentionExhaustedRuns`; old rows cannot be
+excluded merely because they are old.
+
+Review/blocker attention depends on more than issue status. The review liveness
+input includes agents, queued/running runs, wake requests, pending interactions,
+approvals, external-response waits, recovery paths, monitors, and `now`. Identify
+any clock-driven eligibility transitions as well as source mutations before
+removing the backstop. Company activation must discover old eligible sources,
+while company deactivation must stop its passive work.
+
+A company-scoped dirty signal can coalesce a source change into a finite feed
+reconciliation, but it is only valid after every supported source writer and
+transaction owner is accounted for. A live-event callback or activity-log hook
+alone is not a proven durable producer contract. Do not hide provider/domain
+policy in the shared scheduler or add blanket database-write interception.
+
+Also avoid a notification feedback loop: syncItems currently attempts an
+on-conflict insert for all items on every feed read, then updates changed activity
+versions. Unconditionally signaling every such attempted insert would cause the
+worker's own read/materialization to continually wake itself. Any notification
+at this boundary must distinguish actual new/changed retention state and converge.
+
+Required evidence must include an unseen source aging into retention, all audited
+source classes and activation paths, exact archive deadline, activity moving a
+deadline later, keep/unkeep and manual archive/revive, no repeated feed rebuild
+with unchanged pending or completed history, failure/restart/drain, and a source
+change during archive selection. The current version CAS protects retention-row
+changes; it does not by itself prove that an underlying source did not change
+between the feed read and archive. Preserve or strengthen that boundary explicitly
+without silently archiving freshly active work. No retention code or PR is yet
+claimed for this branch.
+
+
+Latest remote verification: #17486 has fresh Greptile 5/5 at `1bbfc69590`,
+all review findings resolved, and one live build job still pending in run
+40132295156. #17490 has fresh Greptile 5/5 at `706beb01f2`, no review threads,
+and active CI run 40132581543 (24 completed jobs, 22 still pending, no failures
+at this snapshot). These are verified live waits, not completed checks. Do not
+rerun them merely because a later observation times out. Continue inspecting
+these runs while implementing retention, and propagate any required parent
+repair into the later branch. No stack PR was merged.
+
+
+## Approval retention implementation in progress
+
+Remote verification on October 24: #17486 at `1bbfc69590` and #17490 at
+`706beb01f2` each have 56 completed checks, all successful or accepted
+neutral/skipped outcomes. Their PR bodies now record completion. Neither was
+merged; this remains a stack.
+
+The retention audit is now split by source owner. Slice 14 migrates **approval
+retention only**. Decisions, interactions, join requests, recovery actions,
+blocker attention, review, failed runs, budget alerts and agent errors remain
+explicitly pending. The original full recurring-work inventory remains scope.
+
+The implementation discovers pending approvals directly, including approvals
+never materialized by an attention-feed read. It uses active-company status,
+the feed's first linked issue, shared execution visibility, keep/archive state,
+and the approval's updated timestamp. The next obligation is updated timestamp
+plus 90 days. Each bounded pass rechecks and locks the approval before using
+existing versioned retention, audit and notification-outbox writes. Other
+retention sources still use the aggregate sweep; approval collection is excluded
+from that maintenance feed before its query, while normal UI reads are unchanged.
+
+Signals cover approval create/cancel/revision/resubmit/resolve, hard budget
+approvals, formal tool approvals, link/unlink/bulk linking, issue visibility and
+cascading deletion, company activation/pause/archive/deletion, and keep/archive/
+revive/accepted archive manifests. Source comments do not alter approval activity
+under the existing policy. Company portability imports no approval records;
+offline restore is reconstructed at startup. Independent SQL writers still
+require a wake integration. The Cloud sleep proof is unchanged.
+
+Initial real-Postgres proof: 14 lifecycle cases passed, then 19 including actual
+archive-write faults, page progress past a failed row, startup drain, first-link
+ordering and shutdown. The first consumer run passed retention and startup but
+failed five approval unit cases because its transaction stub omitted nested
+transactions; the stub was repaired without weakening production behavior.
+The budget suite initially skipped due to embedded-Postgres availability. Budget
+and attention suites now accept validated disposable external test databases.
+Expanded consumer verification, final index/migration proof, build and PR review
+remain required. No slice-14 PR has been published yet.
+
+
+Slice 14 expanded proof: all 20 worker lifecycle cases pass. The shared execution
+visibility predicate is used directly, and a waiting Slack conversation with a
+pending approval remains eligible with its archive notification persisted. The
+repaired approval stub and attention/retention/startup suites pass. Of 96 consumer
+cases, one budget case initially timed out during lazy lifecycle module loading
+and raced teardown; moving the import into setup preserves the original timeout
+and all five budget cases pass. No assertion or production behavior was weakened.
+The initial index diagnostic failed to construct a Drizzle client around the
+scoped raw driver; supplying its existing driver options fixed the diagnostic.
+The actual deadline query with 40,000 resolved approvals uses the pending index,
+four shared buffer hits and 0.314 ms execution; test data rolled back. Migration
+replay and checks pass. Workspace types, build and tool-gateway tests remain live
+in the current verification run. This is not final acceptance.
+
+
+Slice 14 final local verification passes 317 selected tests: 20 new lifecycle,
+96 approval/attention/retention/startup/budget consumers (including the repaired
+budget case), and 201 tool-gateway cases. Workspace typecheck, production build,
+migration numbering/safety, fresh replay and idempotent index replay pass. The
+implementation is committed as `ea3dd40cdd`; remote publication, CI and review
+remain required. The earlier failures remain recorded above.
+
+
+## Slice 14 publication and precision review repair
+
+Approval retention is [#17497](https://github.com/paperclipai/paperclip/pull/17497),
+initial head `2f334c678b`, based on #17490. It is attached. Initial CI run
+40135489716 completed without a failed CI job. Greptile gave 4/5 with one P2:
+JavaScript Date truncation can repeat a full failed page whose source timestamp
+contains microseconds (comment 4368633789, thread PRRT_kwDORclPyM6v79u7).
+
+A database-generated timestamp regression failed before repair: all 100 failed
+rows repeated and blocked row 101. The cursor now preserves the database text
+timestamp. All 21 lifecycle cases pass afterward, and server typecheck passes.
+During the full regression run, the earlier quiet-window test crossed its real
+deadline after settlement. It now measures an explicit window before that
+deadline; it still asserts no SQL and eventual archival. Total selected coverage
+is now 318 unique tests. Fresh remote checks/review are required after this fix.
+
+Related precision audit is required before final stack acceptance: the earlier
+TTL worker (#17479) and effect-recovery worker (#17482) retain Date cursors too.
+Add database-precision regressions and repair those owning PRs, then propagate
+parent updates through the stack. The already-merged terminal-workspace sweep
+also uses a Date keyset cursor; verify and address it as a focused follow-up if
+confirmed. These are concrete remaining verification duties, not waived by the
+earlier green checks.
+
+Branch `codex/sleep-15-join-retention` exists at the initial slice-14 head, with
+no implementation yet. Its producer audit found request writes in access routes
+(accept, replay, auto-approve, approve, reject, key claim), Slack identity access
+creation, and company deletion. Eligibility is pending_approval plus matching
+invite/company and active company. Invite expiry/revocation do not remove the
+existing feed item. Preserve that policy. Retention controls and company status
+changes must notify this owner. Decision retention remains separately pending;
+its visibility dependencies differ, and normal decisions already have a
+maximum 30-day TTL before the 90-day archive threshold.
+
+
+Slice 14 current review repairs: share first-linked-issue/execution visibility in
+one owner used by the feed and worker; keep actor read filtering. Materialize
+unseen approvals inside existing manual retention transactions, locking the
+source before state mutation. Four real failures (three 404s and atomic keep
+rollback) are repaired; the reverse visibility-order regression also passes.
+All 26 lifecycle cases and all 311 cases across eight complete consumer suites,
+server types/build, schema drift, migration safety and fresh apply/replay pass.
+Index 0392 is generated after all 390 unchanged parent journal entries; five
+snapshots remain. Current parent is `679f523d78`; fresh head gates remain required.
+
+
+Slice 14 wake-amplification follow-up: ordinary approval/link/revision/resubmit
+writes no longer notify tool reviews. Approve/reject/cancel retain their existing
+terminal wake contract. Retention uses a thirty-second aggregate notification
+budget, with known deadlines preempting and no idle recurring scan. Three real
+regressions failed before repair. A broad run also caught a removed cancellation
+producer (313 pass/1 fail); it is restored. All 315 cases in eight complete suites,
+including 30 worker cases, and server types/build pass at `dd844f4e8c`. Prior
+coalescing-fixture, security and Greptile service failures remain in the owning
+audit. Fresh exact-head checks and reviews are required on publication.
+
+
+Slice 13 merged `15cddfcb0c` → `2adcde162e` after exact-head Greptile/Ponytail
+5/5 and all 58 check contexts passed or were neutral/skipped. Slice 14 normally
+integrates that landed dependency, preserving four independent Runner E2E
+accounting files. Its entire runtime and acceptance sources match the tested
+and reviewed `3efda33812` tree (315 cases, server types/build). Migration 0392
+and the parent journal prefix are unchanged. Fresh final-head CI/reviews are
+required against master. The abandoned-import-spool inventory duty remains.

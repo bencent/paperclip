@@ -2735,8 +2735,15 @@
     {
       "idx": 392,
       "version": "7",
-      "when": 1793146178702,
-      "tag": "0392_daffy_guardsmen",
+      "when": 1793143372644,
+      "tag": "0392_small_frightful_four",
+      "breakpoints": true
+    },
+    {
+      "idx": 393,
+      "version": "7",
+      "when": 1793147254603,
+      "tag": "0393_elite_angel",
       "breakpoints": true
     }
   ]
