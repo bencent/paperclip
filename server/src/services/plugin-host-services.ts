@@ -3572,6 +3572,17 @@ export function buildHostServices(
             clearTimeout(timeoutTimer);
             activeSubscriptions.delete(entry);
           };
+          const failDelivery = () => {
+            if (!active) return;
+            cleanup();
+            try {
+              notifyWorker("agents.sessions.event", { sessionId: params.sessionId, runId: run.id,
+                seq: 0, eventType: "error", stream: "system", message: "Run event delivery unavailable",
+                payload: { reason: "delivery_unavailable" } });
+            } catch (err) {
+              logger.warn({ err, pluginId, runId: run.id }, "plugin session delivery unavailable");
+            }
+          };
           const delivery = createLiveEventDelivery({
             socket: {
               get readyState() { return active ? 1 : 3; },
@@ -3617,20 +3628,17 @@ export function buildHostServices(
                 }
                 callback?.();
               },
-              close() {
-                cleanup();
-                try {
-                  notifyWorker("agents.sessions.event", { sessionId: params.sessionId, runId: run.id,
-                    seq: 0, eventType: "error", stream: "system", message: "Run event delivery unavailable",
-                    payload: { reason: "delivery_unavailable" } });
-                } catch (err) {
-                  logger.warn({ err, pluginId, runId: run.id }, "plugin session delivery unavailable");
-                }
-              },
+              close: failDelivery,
             },
             authorize: createLiveRunEventRedactor(db),
             decorate: async event => event,
-            onError: err => logger.warn({ err, pluginId, runId: run.id }, "plugin session event redaction failed"),
+            onError: err => {
+              logger.warn({ err, pluginId, runId: run.id }, "plugin session event redaction failed");
+              // Plugins do not poll canonical history like legacy browsers. A
+              // delivery gap must finish their stream, even if it lost the final
+              // status. Never forward the failed payload or change the run.
+              failDelivery();
+            },
           });
           const unsubscribe = subscribeCompanyLiveEvents(companyId, event => {
             if (event.payload.runId === run.id &&
@@ -3645,7 +3653,7 @@ export function buildHostServices(
               { pluginId, pluginKey, runId: run.id },
               "session event subscription timed out — forcing cleanup",
             );
-            cleanup();
+            failDelivery();
           }, SESSION_EVENT_SUBSCRIPTION_TIMEOUT_MS);
 
           const entry = { unsubscribe: stopDelivery, timer: timeoutTimer };

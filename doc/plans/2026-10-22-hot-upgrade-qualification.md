@@ -1491,10 +1491,22 @@ The regression registers a synthetic run secret through the production registry
 and publishes native events through the real bus and host-service subscription.
 Database storage and the secret provider are scripted; the registry, recipient
 pipeline and worker notification are real. Native, legacy and final messages
-stay redacted; a failed redaction drops the event, and disposal suppresses late
-notification and later reads. All 47 registry/plugin/delivery/WebSocket/toast
+stay redacted; disposal suppresses late notification and later reads. The
+initial implementation dropped failed redactions. All 47 registry/plugin/delivery/WebSocket/toast
 cases pass, with server typecheck. Recipient redaction can add database reads
 for active plugin subscribers; final hosted plugin-viewer costs are unmeasured.
+
+A subsequent review reproduced a lost terminal notification when either the
+settings read or registered-secret resolution failed. Both regressions failed
+before the fix. Plugins now receive one content-free delivery error and their
+subscription is removed on any delivery failure. The same path handles backlog
+closure and the existing subscription timeout. This error ends notification
+delivery; it does not stop the agent or change the recorded run status. No
+retry, extra read or browser delivery behavior is added. All 50 cases in the
+six-file registry/plugin/delivery/WebSocket/toast lane pass, including both
+terminal failures, timeout, no subsequent reads, and existing late-disposal
+coverage. Server typecheck passes. Database storage and secret provider remain
+scripted in the plugin regression; hosted plugin-consumer recovery is unmeasured.
 
 Two UI regressions reproduce a run missed between the pre-resync refresh and
 the server's replacement-interest acknowledgement. Application queries now
